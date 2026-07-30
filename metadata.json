@@ -1,0 +1,6 @@
+{
+  "name": "IPL Dhaba Super App",
+  "description": "Box-cricket turf booking, dhaba food ordering, party celebration packages, and fan reward wallet.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

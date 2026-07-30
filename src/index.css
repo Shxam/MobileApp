@@ -1,0 +1,29 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .shadow-pink-glow {
+    box-shadow: 0 10px 25px -5px rgba(244, 63, 94, 0.4), 0 8px 10px -6px rgba(244, 63, 94, 0.2);
+  }
+  .shadow-pink-sm {
+    box-shadow: 0 4px 14px 0 rgba(244, 63, 94, 0.25);
+  }
+}
+
+/* Custom scrollbar for horizontal category sliders */
+::-webkit-scrollbar {
+  height: 4px;
+  width: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
