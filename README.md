@@ -1,291 +1,252 @@
-# IPL Dhaba — MobileApp (Super App)
+# 🏏 🍲 IPL Dhaba — Enterprise Super App & Operations Suite
 
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-19.0-61dafb.svg?logo=react)](https://react.dev/)
+[![NestJS](https://img.shields.io/badge/NestJS-11.1-e0234e.svg?logo=nestjs)](https://nestjs.com/)
+[![Firebase Auth](https://img.shields.io/badge/Firebase_Auth-Phone_OTP-ffca28.svg?logo=firebase)](https://firebase.google.com/)
+[![Prisma](https://img.shields.io/badge/Prisma-5.22-2D3748.svg?logo=prisma)](https://www.prisma.io/)
+[![PostgreSQL](https://img.shields.io/badge/Neon_PostgreSQL-16-336791.svg?logo=postgresql)](https://neon.tech/)
+[![Redis](https://img.shields.io/badge/Upstash_Redis-7-dc382d.svg?logo=redis)](https://upstash.com/)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8.svg?logo=tailwindcss)](https://tailwindcss.com/)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## Summary
+**IPL Dhaba Super App** is an all-in-one platform for dhaba food ordering, IPL box turf cricket slot bookings, event celebrations, and operational merchant tools (Kitchen KDS, Driver Live Tracking, and Admin Portal).
 
-IPL Dhaba is a modern mobile super-app for food ordering, promotions, and personalized recommendations — built to scale for high-traffic events and local restaurants. The app delivers a fast, delightful experience for customers and an easy-to-use management console for restaurant owners.
-
-Key highlights:
-- Seamless ordering, cart, checkout, and order-tracking flows
-- Personalized recommendations (AI-powered)
-- Promotions, coupons, and event-specific features
-- Offline resilience and push notifications
-- Admin dashboard for menu, orders and analytics
-
-View the live AI Studio preview: https://ai.studio/apps/66caa27a-f42d-48d2-b759-6325b849f039
-
----
-
-## Table of Contents
-
-- [Features](#features)
-- [Architecture](#architecture)
-- [User Flows](#user-flows)
-- [Quickstart (Run Locally)](#quickstart-run-locally)
-- [Environment & Configuration](#environment--configuration)
-- [Deployment](#deployment)
-- [Folder Structure](#folder-structure)
-- [Testing & QA](#testing--qa)
-- [Monitoring & Analytics](#monitoring--analytics)
-- [Contributing](#contributing)
-- [License & Credits](#license--credits)
+It features a **Vite + React 19** frontend, **NestJS 11** microservices-ready backend, **Firebase Phone Authentication**, **Neon Cloud PostgreSQL**, and **Upstash Redis** caching & BullMQ event streaming.
 
 ---
 
-## Features
+## 📸 App Highlights & Surfaces
 
-Customer-facing
-- Browse full menu with categories and item variants
-- Add to cart, edit quantities, and save favorites
-- Secure checkout with multiple payment options (cards, UPI, wallets)
-- Real-time order status and delivery tracking
-- In-app promotions, coupons, and time-limited offers
-- Personalized recommendations and upsells (AI-powered)
-- Multi-language support and accessibility-friendly UI
-- Offline caching for menu & cart (graceful degraded mode)
-- Push notifications for order updates and promotions
-
-Merchant / Admin
-- Menu management (items, categories, pricing, availability)
-- Order management and status updates
-- Promotions and coupon creation
-- Sales dashboards and exportable reports
-- Basic user analytics and retention metrics
-
-Platform & DevOps
-- CI/CD with GitHub Actions (build/test/deploy)
-- Secure storage for secrets & environment variables
-- Scalable backend (serverless or containerized)
-- CDN-backed static assets and image optimization
+| App Surface | Port | Command | Description |
+|---|---|---|---|
+| 📱 **Customer Super App** | `3000` | `npm run dev` | Mobile-first consumer app (Food, Turfs, Wallet, Celebrations) |
+| ⚡ **NestJS API Core** | `3001` | `npm run dev:backend` | Production REST API, Firebase Admin verification, SSE Streams |
+| 👨‍🍳 **Kitchen KDS** | `3002` | `npm run dev:kds` | Kitchen Display System for kitchen staff order fulfillment |
+| 📊 **Admin Dashboard** | `3003` | `npm run dev:admin` | Executive management console for staff, revenue, & gate passes |
+| 🛵 **Driver Tracker** | `3004` | `npm run dev:driver` | Delivery partner app with real-time GPS location broadcasting |
 
 ---
 
-## Architecture
+## 🔥 Key Features
 
-The architecture below is a recommended, production-ready reference. Adjust components to match your stack.
+### 🍲 1. Dhaba Food Ordering
+- Multi-category food menu (Biryani, Tandoori, Curries, Beverages, Match Combos)
+- Custom cooking instructions, delivery target selection (Pitch-side Bench, Turf Cage, Table)
+- Real-time Server-Sent Events (SSE) status stream (`Placed` → `Preparing` → `Out for Delivery` → `Delivered`)
+- Live Driver GPS tracking with map visualization and heading updates
 
-Components
-- Mobile Client
-  - Platform: React Native / Flutter / Native (replace as appropriate)
-  - Responsibilities: UI, local cache, offline cart, push notifications
-- API Gateway / Backend
-  - Responsibilities: REST/GraphQL APIs, authentication, business logic, rate limiting
-- Auth Service
-  - JWT-based auth, OAuth sign-in (Google/Apple), session management
-- Database
-  - Primary data store: PostgreSQL / Firestore / DynamoDB
-  - Caching: Redis for sessions, rate-limiting, and frequently-read data
-- Storage & CDN
-  - Object storage for images (S3/GCS) + CDN (CloudFront, Cloudflare)
-- Payment Gateway
-  - Integrations: Stripe / Razorpay / PayPal — PCI-compliant flows
-- Notification Service
-  - Push: FCM / APNs
-  - Email/SMS: SendGrid / Twilio
-- AI Services
-  - Gemini or other LLMs for recommendations, conversational assistant, and content generation
-  - Hosted via AI Studio or your cloud provider
-- Admin Dashboard
-  - Web application for merchants, protected by role-based access
-- Observability
-  - Logs: centralized (ELK / Datadog / Cloud Logging)
-  - Metrics & Tracing: Prometheus + Grafana / APM provider
+### 🏏 2. IPL Box Turf Booking
+- Floodlit evening & prime cricket slot booking system
+- Atomic Redis concurrency lock preventing double bookings
+- QR Code **GatePass Token** generation (`GATEPASS-TB...`) for instant gate validation
+- Add-on services: GoPro match recording, ball boys, umpire assignment
 
-High-level diagram (textual)
-Mobile Client -> API Gateway -> Backend Services -> Database
-                                 |
-                                 -> AI Service (Gemini / AI Studio)
-                                 -> Payment Provider
-                                 -> Notification Provider
-                                 -> Object Storage / CDN
+### 🎉 3. Celebrations & Birthday Party Packages
+- Pitch-side IPL match screening packages
+- Birthday bash setups, custom catering options, and advance reservation manager
 
-Security considerations
-- Use HTTPS with HSTS
-- Secure and rotate API keys (do not store secrets in repo)
-- Follow PCI guidelines for payments; use tokenization
-- Validate & sanitize user inputs on server-side
-- Rate-limit public endpoints and monitor suspicious activity
+### 🔐 4. Firebase Phone Authentication
+- **Client-Side**: Firebase Web SDK with invisible reCAPTCHA and SMS OTP delivery
+- **Backend Verification**: Firebase Admin SDK cryptographically verifies ID tokens via `POST /api/v1/auth/firebase`
+- **Identity Linking**: Automatic linking of `firebaseUid` with existing phone accounts in PostgreSQL
+- **Role Security**: Customers default to `customer` role; operational staff log in securely via 4-digit PIN
+
+### 💰 5. Fan Rewards & Digital Wallet
+- Instant UPI wallet top-ups (Razorpay integration ready)
+- 10% Fan Cashback bonus on top-ups and 5% on orders
+- Internal ledger transaction history with reference correlation IDs
 
 ---
 
-## User Flows
+## 🏛 System Architecture
 
-Below are the primary user flows documented as step-by-step sequences.
-
-1) New user onboarding
-- User opens app → sees welcome screen → sign up or continue as guest
-- Sign-up: email/phone + OTP or OAuth (Google/Apple)
-- App requests permission for notifications, location (optional)
-- Onboarding tips and location-based menu suggestions
-
-2) Browse & order
-- Home shows categories & featured dishes → user browses
-- Item detail shows description, options, add-ons → user adds to cart
-- User opens cart → edits items, applies coupon → proceeds to checkout
-- Checkout: choose delivery address or pickup, select payment method → place order
-- Backend confirms order → user receives confirmation & ETA
-- Real-time order status updates & push notifications
-
-3) Track & deliver
-- User opens order details → sees status timeline (Accepted → Preparing → Out for Delivery → Delivered)
-- Map view shows courier location (if available)
-- After delivery, prompt for feedback or rating
-
-4) Admin / Merchant flow
-- Merchant logs into admin dashboard → manages menu & availability
-- Receives incoming orders → updates order status
-- Views sales report and redeems promotions
-
-Sequence example (place order)
-1. Mobile client POST /orders with cart & address
-2. Backend validates cart & inventory
-3. Backend creates order and charges payment (or reserves funds)
-4. Notification sent to merchant & user
-5. Merchant accepts → order status changes → user receives updates
+```text
+                                  ┌─────────────────────────────────┐
+                                  │      Firebase Auth Server       │
+                                  └────────────────┬────────────────┘
+                                                   │ Verify SMS OTP
+┌───────────────────────────────┐                  │ & Issue ID Token
+│   Vite + React 19 Frontend    ├──────────────────┘
+│  (Consumer, KDS, Admin, Driver)│
+└──────────────┬────────────────┘
+               │ HTTP REST / SSE Stream
+               ▼
+┌───────────────────────────────┐
+│     NestJS 11 API Backend     │◄─── Firebase Admin SDK (Verify ID Token)
+│   (Passport JWT, Guard Scope) │
+└──────┬──────────────┬─────────┘
+       │              │
+       ▼              ▼
+┌──────────────┐ ┌──────────────┐
+│  Neon Cloud  │ │Upstash Redis │
+│ PostgreSQL16 │ │ Cache & Queue│
+│ (Prisma ORM) │ │  (BullMQ)    │
+└──────────────┘ └──────────────┘
+```
 
 ---
 
-## Quickstart — Run Locally
+## 🛠 Tech Stack
 
-Prerequisites
-- Node.js (LTS) and NPM or Yarn
-- Android Studio / Xcode if running on emulator/device (for React Native)
-- [Optional] Docker if using containerized backend
-- GEMINI_API_KEY (for AI features)
-
-Steps
-1. Clone the repository
-   git clone https://github.com/Shxam/MobileApp.git
-2. Install dependencies
-   npm install
-3. Create environment file
-   cp .env.example .env.local
-   Fill in values in `.env.local` (see Environment section)
-4. Start local dev server
-   npm run dev
-5. For mobile:
-   - React Native: npm run android / npm run ios
-   - Or run via Expo if used
-
-Notes
-- If your backend is separate, run it first and point the mobile client to the backend base URL in `.env.local`.
-- To enable AI features, set GEMINI_API_KEY in .env.local.
+- **Frontend**: Vite 6, React 19, TypeScript 5.8, Tailwind CSS v4, Framer Motion 12, Lucide Icons
+- **Backend Framework**: NestJS 11, Express, RxJS, class-validator, class-transformer
+- **Database & ORM**: PostgreSQL 16 (Neon Cloud), Prisma ORM 5.22
+- **Caching & Realtime**: Upstash Redis Cloud 7, BullMQ 6, Socket.IO 4
+- **Authentication**: Firebase Auth (Phone Provider), Firebase Admin SDK 12, Passport JWT (15m Access / 7d Refresh)
+- **Containerization & Cloud**: Docker, Docker Compose, Kubernetes manifests, Helm Charts
 
 ---
 
-## Environment & Configuration
+## 🚀 Quickstart — Run Locally
 
-Example environment variables (replace or extend as needed)
-- GEMINI_API_KEY=your_gemini_api_key_here
-- REACT_NATIVE_API_URL=https://api.example.com
-- NODE_ENV=development
-- FIREBASE_API_KEY=...
-- STRIPE_PUBLIC_KEY=...
-- STRIPE_SECRET_KEY=... (never commit)
+### 1. Prerequisites
+- Node.js (v20+ LTS recommended)
+- npm (v10+)
+- PostgreSQL or Neon Database URL
+- Upstash Redis URL (optional, in-memory fallback enabled)
 
-Security
-- Never commit `.env.local` or secrets to source control.
-- Use secret stores (GitHub Secrets, AWS Secrets Manager, GCP Secret Manager) for CI/CD.
+### 2. Clone & Install
+```bash
+git clone https://github.com/Shxam/MobileApp.git
+cd MobileApp
+npm install
+```
 
----
+### 3. Setup Environment Variables
+Copy `.env.example` to `.env`:
+```bash
+cp .env.example .env
+```
 
-## Deployment
+Ensure your `.env` contains your Neon PostgreSQL connection string and Firebase config:
+```env
+# Node Environment
+NODE_ENV=development
+PORT=3001
 
-A sample deployment pipeline:
-1. Push to main branch
-2. GitHub Actions runs CI: lint → test → build
-3. Build artifacts:
-   - Mobile: build IPA/APK, or publish to app stores
-   - Backend: container image build & push to registry
-4. Deploy:
-   - Serverless: deploy functions to cloud provider
-   - Containers: deploy to Kubernetes/ECS or managed service
-5. Run DB migrations & warm caches
-6. Monitor rollout and health checks
+# Neon Database
+DATABASE_URL="postgresql://user:pass@ep-solitary-thunder.us-east-2.aws.neon.tech/neondb?sslmode=require"
 
-Automated Canary / Blue-Green deployments are recommended for production.
+# Firebase Admin SDK (Backend Private)
+GOOGLE_APPLICATION_CREDENTIALS=firebase-service-account.json
+FIREBASE_PROJECT_ID=ipldhaba
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@ipldhaba.iam.gserviceaccount.com
 
----
+# Firebase Web Client SDK (Public Frontend)
+VITE_FIREBASE_API_KEY=AIzaSyDemoApiKeyForIPLDhabaApp2026
+VITE_FIREBASE_AUTH_DOMAIN=ipldhaba.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=ipldhaba
+VITE_FIREBASE_STORAGE_BUCKET=ipldhaba.firebasestorage.app
+VITE_FIREBASE_MESSAGING_SENDER_ID=115362447382
+VITE_FIREBASE_APP_ID=1:115362447382:web:demoappkey123
+```
 
-## Folder Structure (example)
+### 4. Database Setup & Sync
+```bash
+npx prisma db push
+```
 
-- /mobile — mobile app code (React Native / Flutter)
-- /backend — API server, serverless functions
-- /admin — web admin dashboard
-- /infra — IaC (Terraform / CloudFormation)
-- /scripts — helper scripts (build, deploy)
-- README.md — this file
+### 5. Launch Development Services
+Run all applications in parallel or individually:
 
-Adjust to your repo’s actual layout.
+```bash
+# Start Customer Mobile App (Port 3000)
+npm run dev
 
----
+# Start NestJS API Backend (Port 3001)
+npm run dev:backend
 
-## Testing & QA
+# Start Kitchen KDS App (Port 3002)
+npm run dev:kds
 
-- Unit tests (Jest / Mocha)
-- Integration tests (supertest / Playwright)
-- End-to-end tests (Detox for React Native or Cypress for web)
-- Static analysis & linting (ESLint / Prettier)
-- Security scans & dependency audits (npm audit / Snyk)
+# Start Admin Dashboard (Port 3003)
+npm run dev:admin
 
-Add GitHub Actions workflows for CI and PR checks.
-
----
-
-## Observability & Monitoring
-
-- Logs: structured JSON logs, centralized (ELK / Datadog)
-- Metrics: requests per second, error rate, latency (Prometheus/Grafana)
-- Tracing: distributed tracing (OpenTelemetry, Jaeger)
-- Alerts: set SLOs and alerting rules for high error rates or latency spikes
-
----
-
-## Roadmap / Important Future Work
-
-- Dark mode & theming
-- Advanced AI features: conversational ordering, chef recipe suggestions
-- Loyalty program & subscription offers
-- Multi-restaurant marketplace support
-- Support for scheduled orders, group ordering & split payments
+# Start Driver Tracker App (Port 3004)
+npm run dev:driver
+```
 
 ---
 
-## Contributing
+## 🧪 Testing & Verification
 
-Thanks for contributing! Please follow these steps:
-1. Fork the repo and create a feature branch
-   git checkout -b feat/my-feature
-2. Implement your changes and add tests
-3. Run tests and linters locally
-4. Open a pull request with a clear description and any design decisions
-5. Address code review feedback
+```bash
+# Run TypeScript compilation check
+npm run lint
 
-Follow the repository's CODE_OF_CONDUCT and CONTRIBUTING guidelines (add files if not present).
+# Run Jest unit & integration tests
+npm test
+```
 
----
-
-## Troubleshooting & FAQs
-
-Q: AI features not working locally?
-A: Ensure GEMINI_API_KEY is set in .env.local. If using an emulator, confirm network access to the AI endpoint and any required proxies.
-
-Q: Payments failing in dev?
-A: Use the test keys from your payment provider and ensure webhook endpoints are reachable or use a tunnel (ngrok) for local development.
+### Automated Test Coverage
+- **Auth Integration**: Firebase Token authentication, JWT token issuance, token refresh rotation, and Redis blocklist logout verification
+- **Core Domain Integration**: Menu caching, atomic turf slot reservation locking, food order lifecycle, and internal wallet ledger deductions
 
 ---
 
-## Credits & License
+## 📡 API Contract & Health Check
 
-- Built by the IPL Dhaba team.
-- AI features powered by Gemini (replace with actual provider).
-- License: MIT (or choose your license)
+| Method | Endpoint | Description | Auth |
+|---|---|---|---|
+| `GET` | `/health` | System health check (DB, Redis, Firebase status) | Public |
+| `POST` | `/api/v1/auth/firebase` | Exchange Firebase ID Token for IPL Dhaba JWT pair | Public |
+| `POST` | `/api/v1/auth/staff-login` | Staff PIN login (`KITCHEN-001`, `DELIVERY-001`, `ADMIN-001`) | Public |
+| `POST` | `/api/v1/auth/refresh` | Rotate JWT Refresh Token | Public |
+| `POST` | `/api/v1/auth/logout` | Revoke tokens & blocklist in Redis | Bearer JWT |
+| `GET` | `/api/v1/menu` | Fetch food menu with category filter | Public / Bearer |
+| `POST` | `/api/v1/orders` | Place new food order with delivery target | Bearer JWT |
+| `GET` | `/api/v1/orders/:id/tracking-stream` | Real-time SSE status & driver GPS location stream | Bearer JWT |
+| `GET` | `/api/v1/bookings/slots` | Fetch available box turf slots | Public / Bearer |
+| `POST` | `/api/v1/bookings` | Book turf slot with atomic lock & generate GatePass QR | Bearer JWT |
+| `POST` | `/api/v1/wallet/topup` | Credit fan wallet with UPI top-up | Bearer JWT |
 
 ---
 
-If you'd like, I can:
-- Replace the placeholders with concrete stack details (React Native / Node / Postgres, etc.)
-- Commit this README.md to your repository (Shxam/MobileApp) for you
-- Generate a diagram image (SVG) for the architecture and add it to the repo
+## 🐳 Containerization & Kubernetes
 
-Tell me which of the above you'd like me to do next.
+### Docker Compose
+```bash
+docker-compose up --build -d
+```
+
+### Helm Deployment (Kubernetes)
+```bash
+helm upgrade --install ipl-dhaba-backend ./deploy/helm/ipl-dhaba-backend \
+  --namespace ipl-dhaba \
+  --create-namespace \
+  -f ./deploy/helm/ipl-dhaba-backend/values.yaml
+```
+
+---
+
+## 📂 Repository Directory Structure
+
+```text
+├── apps/
+│   ├── admin/                # Merchant & Admin Console (Port 3003)
+│   ├── backend/              # NestJS 11 Core API (Port 3001)
+│   │   ├── src/
+│   │   │   ├── common/       # Prisma, Redis, Firebase Admin modules
+│   │   │   ├── health/       # Health checks (/health)
+│   │   │   └── modules/      # Auth, Menu, Orders, Bookings, Wallet, Admin
+│   ├── driver/               # Delivery Partner GPS Tracker (Port 3004)
+│   ├── kitchen-kds/          # Kitchen Display System (Port 3002)
+│   └── mobile/               # Mobile Fastlane & Native configs
+├── deploy/                   # Kubernetes Manifests & Helm Charts
+├── docs/                     # Firebase Auth & System Guides
+├── prisma/                   # Schema, Migrations & Seeds
+├── src/                      # Customer Super App (Vite + React 19)
+│   ├── components/           # UI Components, Modals, Navigation
+│   ├── context/              # AppContext state engine
+│   ├── services/             # Firebase SDK, API Client, Event Stream
+│   └── views/                # Home, Food, Turfs, Celebrations, Wallet Views
+└── README.md
+```
+
+---
+
+## 📄 License & Credits
+
+- **Built by**: IPL Dhaba Development Team
+- **License**: MIT License
