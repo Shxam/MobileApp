@@ -1,0 +1,15 @@
+apiVersion: v2
+name: ipl-dhaba-backend
+description: Production Helm Chart for IPL Dhaba Super App NestJS Backend Monorepo (k3s / DOKS)
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - ipl-dhaba
+  - nestjs
+  - postgresql
+  - redis
+  - kubernetes
+maintainers:
+  - name: IPL Dhaba DevOps Team
+    email: devops@ipldhaba.com

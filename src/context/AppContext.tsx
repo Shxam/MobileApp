@@ -13,12 +13,17 @@ import {
 import { INITIAL_USER } from '../data/mockData';
 import { StorageEngine } from '../services/storageEngine';
 import { EventStream } from '../services/eventStream';
+import { ApiClient } from '../services/apiClient';
+import { FirebaseAuthService } from '../services/firebaseAuth';
 
 interface AppContextType {
   user: UserProfile;
   updateUser: (fields: Partial<UserProfile>) => void;
   language: Language;
   setLanguage: (lang: Language) => void;
+  theme: 'light' | 'dark';
+  setTheme: (theme: 'light' | 'dark') => void;
+  toggleTheme: () => void;
   isPhoneFrame: boolean;
   setIsPhoneFrame: (val: boolean) => void;
   
@@ -37,7 +42,7 @@ interface AppContextType {
   cancelTurfBooking: (bookingId: string) => void;
 
   foodOrders: FoodOrder[];
-  addFoodOrder: (order: Omit<FoodOrder, 'id' | 'createdAt' | 'status'>) => FoodOrder;
+  addFoodOrder: (order: Omit<FoodOrder, 'id' | 'createdAt' | 'status'>) => Promise<FoodOrder>;
   updateOrderStatus: (orderId: string, status: FoodOrder['status']) => void;
 
   celebrationBookings: CelebrationBooking[];
@@ -64,9 +69,25 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<UserProfile>(() => StorageEngine.loadUser(INITIAL_USER));
+  const [user, setUser] = useState<UserProfile>(() => ({
+    ...StorageEngine.loadUser(INITIAL_USER),
+    isLoggedIn: Boolean(localStorage.getItem('ipl_dhaba_jwt_token')),
+  }));
   const [language, setLanguage] = useState<Language>('en');
+  const [theme, setTheme] = useState<'light' | 'dark'>('light');
   const [isPhoneFrame, setIsPhoneFrame] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [theme]);
+
+  const toggleTheme = () => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  };
   const [cart, setCart] = useState<CartItem[]>(() => StorageEngine.loadCart([]));
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
 
@@ -92,7 +113,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     ])
   );
 
-  const [foodOrders, setFoodOrders] = useState<FoodOrder[]>(() =>
+  /* const [foodOrders, setFoodOrders] = useState<FoodOrder[]>(() =>
     StorageEngine.loadFoodOrders([
       {
         id: 'ord_2001',
@@ -124,7 +145,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         paymentMethod: 'upi',
       }
     ])
-  );
+  ); */
+  const [foodOrders, setFoodOrders] = useState<FoodOrder[]>([]);
 
   const [celebrationBookings, setCelebrationBookings] = useState<CelebrationBooking[]>(() =>
     StorageEngine.loadCelebrations([])
@@ -134,7 +156,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => { StorageEngine.saveUser(user); }, [user]);
   useEffect(() => { StorageEngine.saveCart(cart); }, [cart]);
   useEffect(() => { StorageEngine.saveTurfBookings(turfBookings); }, [turfBookings]);
-  useEffect(() => { StorageEngine.saveFoodOrders(foodOrders); }, [foodOrders]);
+  useEffect(() => {
+    if (!user.isLoggedIn || !localStorage.getItem('ipl_dhaba_jwt_token')) return;
+    ApiClient.getFoodOrders().then(setFoodOrders).catch(() => setFoodOrders([]));
+  }, [user.isLoggedIn]);
   useEffect(() => { StorageEngine.saveCelebrations(celebrationBookings); }, [celebrationBookings]);
 
   // Transactions
@@ -365,15 +390,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Food Order Handler
-  const addFoodOrder = (
+  const addFoodOrder = async (
     orderData: Omit<FoodOrder, 'id' | 'createdAt' | 'status'>
-  ): FoodOrder => {
-    const newOrder: FoodOrder = {
-      ...orderData,
-      id: `ord_${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      status: 'placed',
-    };
+  ): Promise<FoodOrder> => {
+    const newOrder = await ApiClient.createFoodOrder(orderData);
     setFoodOrders((prev) => [newOrder, ...prev]);
     clearCart();
 
@@ -383,7 +403,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       'food'
     );
 
-    // Simulate progress pipeline after delay
+    /* Legacy client-side simulation intentionally disabled. Kitchen and rider APIs own status changes.
     setTimeout(() => {
       updateOrderStatus(newOrder.id, 'preparing');
       addNotification('👨‍🍳 Order Preparing', 'Your food is sizzling on the dhaba tandoor!', 'food');
@@ -392,7 +412,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setTimeout(() => {
       updateOrderStatus(newOrder.id, 'out_for_delivery');
       addNotification('🚀 Out for Delivery', 'Runner is carrying your food pitch-side!', 'food');
-    }, 15000);
+    }, 15000); */
 
     return newOrder;
   };
@@ -423,6 +443,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const logout = () => {
+    FirebaseAuthService.signOut();
+    localStorage.removeItem('ipl_dhaba_jwt_token');
+    localStorage.removeItem('ipl_dhaba_refresh_token');
+    setFoodOrders([]);
     setUser((prev) => ({ ...prev, isLoggedIn: false }));
     setIsAuthModalOpen(true);
   };
@@ -434,6 +458,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateUser,
         language,
         setLanguage,
+        theme,
+        setTheme,
+        toggleTheme,
         isPhoneFrame,
         setIsPhoneFrame,
         cart,

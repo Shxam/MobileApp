@@ -1,0 +1,26 @@
+# ===================================================
+# Helm Staging Environment Values
+# ===================================================
+
+replicaCount: 2
+
+ingress:
+  hosts:
+    - host: staging-api.ipldhaba.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: staging-api-ipldhaba-tls
+      hosts:
+        - staging-api.ipldhaba.com
+
+env:
+  NODE_ENV: "staging"
+
+secrets:
+  databaseUrl: "postgresql://ipldhaba_staging_owner:STAGING_PASS@ep-staging-branch-123456.ap-southeast-1.aws.neon.tech/ipldhaba_staging?sslmode=require"
+  redisPassword: "STAGING_REDIS_SECRET_PASSWORD"
+  jwtSecret: "staging-jwt-secret-key-ipl-dhaba-2026"
+  jwtRefreshSecret: "staging-refresh-secret-key-ipl-dhaba-2026"
+  gatePassSecret: "staging-gatepass-secret-2026"

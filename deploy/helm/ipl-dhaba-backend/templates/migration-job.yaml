@@ -1,0 +1,32 @@
+{{- if .Values.migrationJob.enabled -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "ipl-dhaba-backend.fullname" . }}-migration-{{ randAlphaNum 5 | lower }}
+  labels:
+    app.kubernetes.io/name: {{ include "ipl-dhaba-backend.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": hook-succeeded,before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      name: {{ include "ipl-dhaba-backend.fullname" . }}-migration
+    spec:
+      restartPolicy: Never
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: prisma-migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["npx", "prisma", "migrate", "deploy"]
+          envFrom:
+            - secretRef:
+                name: {{ include "ipl-dhaba-backend.fullname" . }}-secret
+{{- end }}

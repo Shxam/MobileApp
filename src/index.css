@@ -1,11 +1,96 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Chakra Petch', 'Plus Jakarta Sans', sans-serif;
+  --color-emerald-glow: rgba(16, 185, 129, 0.4);
+}
+
+body {
+  font-family: var(--font-sans);
+}
+
+h1, h2, h3, .font-display {
+  font-family: var(--font-display);
+}
+
 @layer utilities {
-  .shadow-pink-glow {
-    box-shadow: 0 10px 25px -5px rgba(244, 63, 94, 0.4), 0 8px 10px -6px rgba(244, 63, 94, 0.2);
+  .shadow-pink-glow,
+  .shadow-green-glow {
+    box-shadow: 0 10px 25px -5px rgba(16, 185, 129, 0.4), 0 8px 10px -6px rgba(16, 185, 129, 0.2);
   }
-  .shadow-pink-sm {
-    box-shadow: 0 4px 14px 0 rgba(244, 63, 94, 0.25);
+  .shadow-pink-sm,
+  .shadow-green-sm {
+    box-shadow: 0 4px 14px 0 rgba(16, 185, 129, 0.25);
+  }
+
+  .shadow-fiery-glow {
+    box-shadow: 0 0 50px rgba(249, 115, 22, 0.5), 0 0 20px rgba(234, 88, 12, 0.8);
+  }
+
+  /* 21st.dev Animated Border Glow Utility */
+  .glow-border {
+    position: relative;
+  }
+  .glow-border::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.6), rgba(245, 158, 11, 0.6), rgba(16, 185, 129, 0.6));
+    border-radius: inherit;
+    z-index: -1;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+  }
+  .glow-border:hover::after {
+    opacity: 1;
+  }
+
+  /* Animated pulse glow ring */
+  .pulse-glow {
+    animation: pulseGlow 2.5s infinite ease-in-out;
+  }
+
+  .animate-metallic-sweep {
+    animation: metallicSweep 3s infinite linear;
+  }
+
+  .animate-ember-float {
+    animation: emberFloat 4s infinite ease-in-out;
+  }
+}
+
+@keyframes pulseGlow {
+  0%, 100% {
+    box-shadow: 0 0 15px rgba(16, 185, 129, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 35px rgba(249, 115, 22, 0.7);
+  }
+}
+
+@keyframes metallicSweep {
+  0% {
+    transform: translateX(-150%) rotate(45deg);
+  }
+  50%, 100% {
+    transform: translateX(150%) rotate(45deg);
+  }
+}
+
+@keyframes emberFloat {
+  0% {
+    transform: translateY(0px) scale(0.8);
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    transform: translateY(-80px) scale(1.3);
+    opacity: 0;
   }
 }
 

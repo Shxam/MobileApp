@@ -1,0 +1,7 @@
+# ===================================================
+# IPL Dhaba Android Appfile Configuration
+# Package Name & Google Play Console Service Account Key Path
+# ===================================================
+
+json_key_file("./fastlane/play-console-service-account.json") # Path to Play Console Service Account JSON Key
+package_name("com.ipldhaba.superapp") # Package Name matching capacitor.config.json

@@ -1,0 +1,31 @@
+# ===================================================
+# Helm Production Environment Values
+# ===================================================
+
+replicaCount: 3
+
+autoscaling:
+  minReplicas: 3
+  maxReplicas: 15
+
+resources:
+  limits:
+    cpu: 2000m
+    memory: 2048Mi
+  requests:
+    cpu: 500m
+    memory: 512Mi
+
+ingress:
+  hosts:
+    - host: api.ipldhaba.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: api-ipldhaba-tls
+      hosts:
+        - api.ipldhaba.com
+
+env:
+  NODE_ENV: "production"

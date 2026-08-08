@@ -18,7 +18,7 @@ import {
   ShieldCheck,
   ChevronRight
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export const WalletView: React.FC = () => {
   const { user, transactions, topUpWallet, updateUser, addNotification, language } = useApp();

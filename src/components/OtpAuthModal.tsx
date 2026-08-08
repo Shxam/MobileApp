@@ -1,26 +1,34 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../context/AppContext';
-import { Smartphone, ShieldCheck, ArrowRight, X, Sparkles, CheckCircle2, Lock } from 'lucide-react';
+import { Smartphone, ShieldCheck, ArrowRight, X, Sparkles, CheckCircle2, User as UserIcon } from 'lucide-react';
+import { ApiClient } from '../services/apiClient';
+import { FirebaseAuthService } from '../services/firebaseAuth';
+import { ConfirmationResult } from 'firebase/auth';
 
 const IPL_TEAMS = [
-  { name: 'Royal Challengers Bengaluru', code: 'RCB', color: 'from-red-600 to-amber-600' },
-  { name: 'Chennai Super Kings', code: 'CSK', color: 'from-amber-500 to-yellow-600' },
-  { name: 'Mumbai Indians', code: 'MI', color: 'from-blue-600 to-indigo-700' },
-  { name: 'Kolkata Knight Riders', code: 'KKR', color: 'from-purple-700 to-amber-600' },
-  { name: 'Gujarat Titans', code: 'GT', color: 'from-cyan-700 to-blue-900' },
-  { name: 'Sunrisers Hyderabad', code: 'SRH', color: 'from-orange-500 to-red-600' },
+  { code: 'RCB', name: 'Royal Challengers' },
+  { code: 'CSK', name: 'Chennai Super Kings' },
+  { code: 'MI', name: 'Mumbai Indians' },
+  { code: 'KKR', name: 'Kolkata Knight Riders' },
+  { code: 'GT', name: 'Gujarat Titans' },
+  { code: 'SRH', name: 'Sunrisers Hyderabad' },
 ];
 
 export const OtpAuthModal: React.FC = () => {
   const { isAuthModalOpen, setIsAuthModalOpen, updateUser, addNotification } = useApp();
   const [step, setStep] = useState<'phone' | 'otp' | 'success'>('phone');
   const [phone, setPhone] = useState('9876543210');
-  const [otp, setOtp] = useState(['7', '8', '9', '1']);
+  const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [selectedTeam, setSelectedTeam] = useState('RCB');
   const [name, setName] = useState('Rahul Sharma');
   const [timer, setTimer] = useState(30);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
+
+  const normalizedPhone = `+91${phone}`;
 
   useEffect(() => {
     let interval: any;
@@ -32,59 +40,117 @@ export const OtpAuthModal: React.FC = () => {
 
   if (!isAuthModalOpen) return null;
 
-  const handleSendOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (phone.length < 10) return;
-    setStep('otp');
-    setTimer(30);
-    addNotification('📲 Twilio SMS Sent', `OTP sent to +91 ${phone} via Twilio Verify. (Test OTP: 7891)`, 'wallet');
+  const formatFirebaseError = (err: any): string => {
+    const msg = err?.message || err?.code || String(err);
+    if (msg.includes('auth/invalid-phone-number')) return 'Invalid mobile number format. Enter 10 digits.';
+    if (msg.includes('auth/too-many-requests')) return 'Too many attempts. Wait a few minutes.';
+    if (msg.includes('auth/invalid-verification-code')) return 'Invalid 6-digit OTP code.';
+    if (msg.includes('auth/code-expired')) return 'OTP code expired. Please resend.';
+    return msg.replace('Firebase: ', '');
   };
 
-  const handleVerifyOtp = () => {
+  const handleSendOtp = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (phone.length !== 10) return;
+    setError('');
+    setIsLoading(true);
+    try {
+      const verifier = FirebaseAuthService.createRecaptchaVerifier('recaptcha-container-modal');
+      const result = await FirebaseAuthService.sendPhoneOtp(normalizedPhone, verifier);
+      setConfirmationResult(result);
+      setStep('otp');
+      setTimer(30);
+      addNotification('📱 Firebase SMS OTP Sent!', `OTP code dispatched to +91 ${phone} via Firebase Auth.`, 'wallet');
+    } catch (err: any) {
+      console.error('Firebase Auth Modal Error:', err);
+      setError(formatFirebaseError(err));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    const otpCode = otp.join('');
+    if (otpCode.length !== 6) {
+      setError('Please enter all 6 digits of the OTP.');
+      return;
+    }
+
+    setError('');
     setIsVerifying(true);
-    setTimeout(() => {
+    try {
+      if (!confirmationResult) {
+        throw new Error('Verification session expired. Please re-enter phone number.');
+      }
+
+      // Step 1: Confirm OTP with Firebase
+      const userCredential = await FirebaseAuthService.confirmOtp(confirmationResult, otpCode);
+
+      // Step 2: Get Firebase ID token
+      const idToken = await userCredential.user.getIdToken(/* forceRefresh */ true);
+
+      // Step 3: Verify token with backend
+      const result = await ApiClient.authenticateWithFirebase(idToken, name, selectedTeam);
+
+      localStorage.setItem('ipl_dhaba_jwt_token', result.accessToken);
+      localStorage.setItem('ipl_dhaba_refresh_token', result.refreshToken);
+
       setIsVerifying(false);
       setStep('success');
+
       const teamObj = IPL_TEAMS.find((t) => t.code === selectedTeam);
       updateUser({
-        name,
-        phone: `+91 ${phone}`,
+        id: result.user.id,
+        name: result.user.name || name,
+        phone: result.user.phone || `+91 ${phone}`,
         favoriteTeam: teamObj ? teamObj.name : 'Royal Challengers Bengaluru',
         isLoggedIn: true,
       });
-      addNotification('🎉 Welcome Fan!', 'Logged in via AWS Cognito OTP. +100 Fan Points added!', 'reward');
+
+      addNotification('🎉 Welcome Fan!', 'Firebase Identity verified & Session locked in!', 'reward');
+
       setTimeout(() => {
         setIsAuthModalOpen(false);
         setStep('phone');
+        setOtp(['', '', '', '', '', '']);
       }, 1500);
-    }, 1000);
+    } catch (err: any) {
+      console.error('Firebase Auth Verification Error:', err);
+      setIsVerifying(false);
+      setError(formatFirebaseError(err));
+    }
   };
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+        {/* Invisible reCAPTCHA container required by Firebase */}
+        <div id="recaptcha-container-modal"></div>
+
         <motion.div
-          initial={{ opacity: 0, scale: 0.9, y: 20 }}
+          initial={{ opacity: 0, scale: 0.9, y: 15 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.9, y: 20 }}
-          className="relative w-full max-w-md bg-slate-900 border border-amber-500/30 rounded-3xl p-6 shadow-2xl text-white overflow-hidden"
+          exit={{ opacity: 0, scale: 0.9, y: 15 }}
+          className="relative w-full max-w-md bg-[#0B132B] border border-amber-500/40 rounded-3xl p-5 shadow-2xl text-white space-y-4 overflow-hidden"
         >
-          {/* Header */}
-          <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <img
-                src="/logo.png"
-                alt="IPL Logo"
-                className="w-10 h-10 rounded-xl object-contain bg-slate-950 p-0.5 border border-amber-500/40 shadow-md shrink-0"
-              />
+          {/* Header Bar */}
+          <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full border-2 border-amber-400 overflow-hidden bg-slate-900 shrink-0 shadow-sm">
+                <img src="/logo.png" alt="IPL Dhaba" className="w-full h-full object-cover" />
+              </div>
               <div>
-                <h3 className="font-bold text-base text-amber-400">IPL Dhaba Sign In</h3>
-                <p className="text-[11px] text-slate-400 font-medium">Indian Prime Line (Tasty & Healthy)</p>
+                <h3 className="font-extrabold text-sm text-amber-400 tracking-wide font-display">
+                  IPL Dhaba Sign In
+                </h3>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  Firebase Phone Authentication
+                </p>
               </div>
             </div>
             <button
               onClick={() => setIsAuthModalOpen(false)}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white"
+              className="w-7 h-7 bg-slate-800/90 text-slate-400 hover:text-white rounded-lg flex items-center justify-center transition-colors cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -92,22 +158,28 @@ export const OtpAuthModal: React.FC = () => {
 
           {/* Body Steps */}
           {step === 'phone' && (
-            <form onSubmit={handleSendOtp} className="mt-5 space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Your Full Name</label>
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-amber-500"
-                  required
-                />
+            <form onSubmit={handleSendOtp} className="space-y-4">
+              {/* Field 1: Your Full Name */}
+              <div className="space-y-1">
+                <label className="block text-[11px] font-bold text-slate-300">Your Full Name</label>
+                <div className="flex items-center bg-[#162238] border border-slate-700/80 focus-within:border-amber-500 rounded-2xl px-3.5 py-2.5 transition-all">
+                  <input
+                    type="text"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    placeholder="Rahul Sharma"
+                    required
+                    className="w-full bg-transparent text-xs font-bold text-white focus:outline-none placeholder:text-slate-500"
+                  />
+                  <UserIcon className="w-4 h-4 text-slate-400 shrink-0" />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Mobile Number (India +91)</label>
-                <div className="flex items-center bg-slate-800 border border-slate-700 rounded-xl overflow-hidden focus-within:border-amber-500">
-                  <span className="px-3 text-sm font-bold text-amber-400 bg-slate-800/80 border-r border-slate-700">
+              {/* Field 2: Mobile Number (India +91) */}
+              <div className="space-y-1">
+                <label className="block text-[11px] font-bold text-slate-300">Mobile Number (India +91)</label>
+                <div className="flex items-center bg-[#162238] border border-slate-700/80 focus-within:border-amber-500 rounded-2xl px-3.5 py-2.5 transition-all">
+                  <span className="text-xs font-black text-amber-400 pr-3 border-r border-slate-700/80">
                     +91
                   </span>
                   <input
@@ -115,25 +187,27 @@ export const OtpAuthModal: React.FC = () => {
                     maxLength={10}
                     value={phone}
                     onChange={(e) => setPhone(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Enter 10-digit number"
-                    className="w-full bg-transparent px-3 py-2.5 text-sm text-white focus:outline-none font-mono tracking-wider"
+                    placeholder="9876543210"
+                    className="w-full bg-transparent text-xs font-extrabold text-white pl-3 focus:outline-none placeholder:text-slate-500 tracking-wider font-mono"
                     required
                   />
+                  <Smartphone className="w-4 h-4 text-slate-400 shrink-0" />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1.5">Pick Your Favorite IPL Team</label>
+              {/* Field 3: Pick Your Favorite IPL Team */}
+              <div className="space-y-1.5">
+                <label className="block text-[11px] font-bold text-slate-300">Pick Your Favorite IPL Team</label>
                 <div className="grid grid-cols-3 gap-2">
                   {IPL_TEAMS.map((team) => (
                     <button
                       type="button"
                       key={team.code}
                       onClick={() => setSelectedTeam(team.code)}
-                      className={`p-2 rounded-xl text-center border transition-all text-xs font-bold ${
+                      className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
                         selectedTeam === team.code
-                          ? 'bg-amber-500/20 border-amber-500 text-amber-300'
-                          : 'bg-slate-800/60 border-slate-700/60 text-slate-400 hover:text-slate-200'
+                          ? 'bg-amber-950/80 border-2 border-amber-500 text-amber-300 shadow-green-sm scale-[1.02]'
+                          : 'bg-[#162238] border border-slate-700/80 text-slate-400 hover:text-white hover:border-slate-600'
                       }`}
                     >
                       {team.code}
@@ -142,62 +216,125 @@ export const OtpAuthModal: React.FC = () => {
                 </div>
               </div>
 
+              {error && <p className="text-xs text-rose-400 bg-rose-950/40 p-2 rounded-xl border border-rose-800/50">{error}</p>}
+
+              {/* Primary CTA Button */}
               <button
                 type="submit"
-                className="w-full mt-2 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition-all"
+                disabled={isLoading || phone.length !== 10}
+                className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-600 hover:to-orange-600 active:scale-95 text-slate-950 font-black py-3.5 rounded-2xl text-xs shadow-fiery-glow flex items-center justify-center gap-2 transition-all cursor-pointer mt-2 disabled:opacity-50"
               >
-                <span>Send SMS OTP</span>
+                <span>{isLoading ? 'Sending Firebase SMS OTP…' : 'Send Firebase SMS OTP'}</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </form>
           )}
 
           {step === 'otp' && (
-            <div className="mt-5 space-y-4">
-              <div className="text-center">
-                <p className="text-xs text-slate-300">
-                  Enter 4-digit code sent to <span className="font-bold text-amber-400">+91 {phone}</span>
-                </p>
-                <span className="inline-block mt-1 text-[11px] bg-slate-800 px-2.5 py-0.5 rounded-full text-amber-300 border border-slate-700 font-mono">
-                  Test SMS Code: 7891
-                </span>
+            <div className="space-y-4">
+              <div className="bg-slate-800/90 border border-slate-700 p-3 rounded-2xl text-xs text-slate-300 font-medium flex items-center justify-between">
+                <span>Enter code sent to +91 {phone}</span>
+                <button
+                  type="button"
+                  onClick={() => { setStep('phone'); setError(''); }}
+                  className="text-[10px] underline text-amber-400 hover:text-amber-300"
+                >
+                  Edit Number
+                </button>
               </div>
 
-              <div className="flex justify-center gap-3 my-4">
-                {otp.map((digit, idx) => (
-                  <input
-                    key={idx}
-                    type="text"
-                    maxLength={1}
-                    value={digit}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      const next = [...otp];
-                      next[idx] = val;
-                      setOtp(next);
-                    }}
-                    className="w-12 h-12 text-center text-xl font-bold font-mono bg-slate-800 border-2 border-amber-500/50 rounded-xl text-amber-400 focus:outline-none focus:border-amber-400"
-                  />
-                ))}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="block text-[11px] font-bold text-slate-300">6-Digit Firebase OTP Code</label>
+                  <button
+                    type="button"
+                    onClick={() => setOtp(['', '', '', '', '', ''])}
+                    className="text-[10px] font-bold text-rose-400 hover:text-rose-300 underline cursor-pointer"
+                  >
+                    Clear OTP
+                  </button>
+                </div>
+                <div className="flex justify-between gap-1.5">
+                  {otp.map((digit, idx) => (
+                    <input
+                      key={idx}
+                      id={`modal-otp-input-${idx}`}
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={1}
+                      value={digit}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Backspace') {
+                          e.preventDefault();
+                          const next = [...otp];
+                          if (next[idx]) {
+                            next[idx] = '';
+                            setOtp(next);
+                          } else if (idx > 0) {
+                            next[idx - 1] = '';
+                            setOtp(next);
+                            const prevEl = document.getElementById(`modal-otp-input-${idx - 1}`);
+                            if (prevEl) (prevEl as HTMLInputElement).focus();
+                          }
+                        }
+                      }}
+                      onPaste={(e) => {
+                        e.preventDefault();
+                        const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+                        if (pasted.length > 0) {
+                          const next = ['', '', '', '', '', ''];
+                          for (let i = 0; i < pasted.length; i++) {
+                            next[i] = pasted[i];
+                          }
+                          setOtp(next);
+                          const lastIdx = Math.min(pasted.length - 1, 5);
+                          const el = document.getElementById(`modal-otp-input-${lastIdx}`);
+                          if (el) (el as HTMLInputElement).focus();
+                        }
+                      }}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        if (!val && !e.target.value) {
+                          const next = [...otp];
+                          next[idx] = '';
+                          setOtp(next);
+                          return;
+                        }
+                        const digitVal = val.slice(-1);
+                        const next = [...otp];
+                        next[idx] = digitVal;
+                        setOtp(next);
+                        if (digitVal && idx < 5) {
+                          const nextEl = document.getElementById(`modal-otp-input-${idx + 1}`);
+                          if (nextEl) (nextEl as HTMLInputElement).focus();
+                        }
+                      }}
+                      className="w-11 h-12 text-center bg-[#162238] border border-slate-700/80 focus:border-amber-500 rounded-xl text-lg font-black text-white focus:outline-none font-mono"
+                    />
+                  ))}
+                </div>
               </div>
 
               <div className="flex items-center justify-between text-xs text-slate-400 px-1">
                 <button
-                  onClick={() => setOtp(['7', '8', '9', '1'])}
-                  className="text-amber-400 font-semibold underline hover:text-amber-300"
+                  type="button"
+                  disabled={timer > 0 || isLoading}
+                  onClick={handleSendOtp}
+                  className="text-amber-400 font-semibold underline hover:text-amber-300 disabled:opacity-40"
                 >
-                  Auto-fill Test Code
+                  {timer > 0 ? `Resend in ${timer}s` : 'Resend OTP'}
                 </button>
-                <span>Resend in {timer}s</span>
               </div>
+
+              {error && <p className="text-xs text-rose-400 bg-rose-950/40 p-2 rounded-xl border border-rose-800/50">{error}</p>}
 
               <button
                 onClick={handleVerifyOtp}
-                disabled={isVerifying}
-                className="w-full bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-600 hover:to-teal-700 text-slate-950 font-extrabold py-3 rounded-xl shadow-lg shadow-emerald-500/20 flex items-center justify-center gap-2 transition-all"
+                disabled={isVerifying || otp.join('').length !== 6}
+                className="w-full bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-600 hover:to-orange-600 active:scale-95 text-slate-950 font-black py-3.5 rounded-2xl text-xs shadow-fiery-glow flex items-center justify-center gap-2 transition-all cursor-pointer disabled:opacity-50"
               >
                 {isVerifying ? (
-                  <span>Verifying via Cognito...</span>
+                  <span>Authenticating with Firebase…</span>
                 ) : (
                   <>
                     <ShieldCheck className="w-4 h-4" />
@@ -209,13 +346,13 @@ export const OtpAuthModal: React.FC = () => {
           )}
 
           {step === 'success' && (
-            <div className="mt-8 mb-4 text-center space-y-3">
+            <div className="my-6 text-center space-y-3">
               <div className="w-16 h-16 rounded-full bg-emerald-500/20 text-emerald-400 border-2 border-emerald-500 mx-auto flex items-center justify-center animate-bounce">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <h4 className="text-lg font-bold text-emerald-400">Phone Verified!</h4>
-              <p className="text-xs text-slate-300">
-                JWT Token Issued via AWS Cognito. Redirecting to your IPL Dhaba Super App...
+              <h4 className="text-lg font-black text-emerald-400">Firebase Phone Verified!</h4>
+              <p className="text-xs text-slate-300 font-medium">
+                JWT Token Issued. Authenticated as {name} ({selectedTeam} Supporter)...
               </p>
             </div>
           )}

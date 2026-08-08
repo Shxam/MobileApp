@@ -13,12 +13,25 @@ export class ApiClient {
    * Helper to construct auth headers with request correlation ID
    */
   private static getHeaders(): Record<string, string> {
-    const token = localStorage.getItem('ipl_dhaba_jwt_token') || 'mock_jwt_token_demo';
+    const token = localStorage.getItem('ipl_dhaba_jwt_token');
     return {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       'X-Request-ID': `client_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
     };
+  }
+
+  /**
+   * Exchanges verified Firebase ID token for IPL Dhaba JWT access + refresh session
+   */
+  public static async authenticateWithFirebase(idToken: string, name?: string, favoriteTeam?: string) {
+    const response = await fetch(`${this.BASE_URL}/auth/firebase`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify({ idToken, name, favoriteTeam }),
+    });
+    if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Firebase authentication verification failed.');
+    return response.json() as Promise<{ accessToken: string; refreshToken: string; user: { id: string; phone: string; name: string; favoriteTeam?: string } }>;
   }
 
   /**
@@ -86,24 +99,21 @@ export class ApiClient {
   /**
    * Submit new food order
    */
-  public static async createFoodOrder(orderData: Partial<FoodOrder>): Promise<{ success: boolean; id: string }> {
-    try {
-      const res = await fetch(`${this.BASE_URL}/orders`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(orderData),
-      });
-      if (res.ok) {
-        const payload = await res.json();
-        return { success: true, id: payload.data?.id || payload.id };
-      }
-    } catch {
-      // Fallback
-    }
+  public static async createFoodOrder(orderData: Omit<FoodOrder, 'id' | 'createdAt' | 'status'>): Promise<FoodOrder> {
+    const response = await fetch(`${this.BASE_URL}/orders`, { method: 'POST', headers: this.getHeaders(), body: JSON.stringify(orderData) });
+    if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Unable to place the order.');
+    return response.json() as Promise<FoodOrder>;
+  }
 
-    return {
-      success: true,
-      id: `ord_${Math.floor(1000 + Math.random() * 9000)}`,
-    };
+  public static async getFoodOrders(): Promise<FoodOrder[]> {
+    const response = await fetch(`${this.BASE_URL}/orders`, { headers: this.getHeaders() });
+    if (!response.ok) throw new Error('Unable to load your orders.');
+    return response.json() as Promise<FoodOrder[]>;
+  }
+
+  public static async getFoodOrder(id: string): Promise<FoodOrder & { location?: { latitude: number; longitude: number; heading?: number; updatedAt: string } | null; driverName?: string; driverPhone?: string }> {
+    const response = await fetch(`${this.BASE_URL}/orders/${id}`, { headers: this.getHeaders() });
+    if (!response.ok) throw new Error('Unable to load live delivery information.');
+    return response.json();
   }
 }

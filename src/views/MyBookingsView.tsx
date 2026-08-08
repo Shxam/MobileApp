@@ -21,9 +21,10 @@ import {
   Share2,
   Star,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 
 export const MyBookingsView: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion();
   const {
     turfBookings,
     foodOrders,
@@ -52,13 +53,13 @@ export const MyBookingsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4 p-4 pb-28 bg-slate-50 min-h-screen text-slate-900">
+    <div className="space-y-4 p-4 pb-28 bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-900 dark:text-white transition-colors">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-black text-slate-900 tracking-tight">
+        <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">
           {language === 'en' ? 'My Hub & Activity' : 'मेरी सभी बुकिंग और ऑर्डर'}
         </h2>
-        <p className="text-xs text-slate-500 font-medium">
+        <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
           {language === 'en'
             ? 'Track live food orders, turf passes & party celebrations'
             : 'सभी ४ सेवाओं की एकीकृत जानकारी'}
@@ -66,12 +67,12 @@ export const MyBookingsView: React.FC = () => {
       </div>
 
       {/* Sub Tabs */}
-      <div className="flex bg-white p-1 rounded-2xl border border-slate-200/80 text-xs font-bold shadow-xs">
+      <div className="flex bg-white dark:bg-slate-900 p-1 rounded-2xl border border-slate-200/80 dark:border-slate-800 text-xs font-bold shadow-xs">
         <button
           onClick={() => setActiveSubTab('food')}
           className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition-all ${
             activeSubTab === 'food'
-              ? 'bg-rose-500 text-white font-extrabold shadow-pink-sm'
+              ? 'bg-emerald-500 text-white font-extrabold shadow-green-sm'
               : 'text-slate-500 hover:text-slate-800'
           }`}
         >
@@ -121,7 +122,11 @@ export const MyBookingsView: React.FC = () => {
               </div>
 
               {/* Map Component with Pink Route (Matching Screenshot 3) */}
-              <DriverMapTracker orderStatus={activeOrder.status} />
+              <DriverMapTracker
+                orderId={activeOrder.id}
+                deliveryTarget={activeOrder.deliveryTarget}
+                estimatedMinutes={activeOrder.estimatedDeliveryMinutes}
+              />
 
               <div className="space-y-3 pt-1">
                 <div className="flex items-center justify-between">
@@ -139,9 +144,9 @@ export const MyBookingsView: React.FC = () => {
                   <div className="flex items-center justify-between relative px-2">
                     {/* Pink Line Background */}
                     <div className="absolute top-1/2 left-6 right-6 h-0.5 bg-slate-200 -translate-y-1/2 z-0" />
-                    <div
-                      className="absolute top-1/2 left-6 h-0.5 bg-rose-500 -translate-y-1/2 z-0 transition-all duration-500"
-                      style={{
+                    <motion.div
+                      className="absolute top-1/2 left-6 h-0.5 bg-rose-500 -translate-y-1/2 z-0"
+                      animate={{
                         width:
                           activeOrder.status === 'placed'
                             ? '10%'
@@ -151,6 +156,7 @@ export const MyBookingsView: React.FC = () => {
                             ? '75%'
                             : '100%',
                       }}
+                      transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 320, damping: 28 }}
                     />
 
                     {/* Step 1: Accepted */}
@@ -163,37 +169,37 @@ export const MyBookingsView: React.FC = () => {
 
                     {/* Step 2: Cooking */}
                     <div className="relative z-10 flex flex-col items-center gap-1">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                      <motion.div key={`cooking-${activeOrder.status}`} initial={shouldReduceMotion ? false : { scale: 0.72 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 380, damping: 25 }} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
                         ['preparing', 'out_for_delivery', 'delivered'].includes(activeOrder.status)
                           ? 'bg-rose-500 text-white shadow-pink-sm'
                           : 'bg-slate-200 text-slate-500'
                       }`}>
                         🍳
-                      </div>
+                      </motion.div>
                       <span className="text-[10px] font-bold text-slate-800">Cooking</span>
                     </div>
 
                     {/* Step 3: Pickup */}
                     <div className="relative z-10 flex flex-col items-center gap-1">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                      <motion.div key={`pickup-${activeOrder.status}`} initial={shouldReduceMotion ? false : { scale: 0.72 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 380, damping: 25 }} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
                         ['out_for_delivery', 'delivered'].includes(activeOrder.status)
                           ? 'bg-rose-500 text-white shadow-pink-sm'
                           : 'bg-slate-200 text-slate-500'
                       }`}>
                         🛵
-                      </div>
+                      </motion.div>
                       <span className="text-[10px] font-bold text-slate-800">Pickup</span>
                     </div>
 
                     {/* Step 4: Delivered */}
                     <div className="relative z-10 flex flex-col items-center gap-1">
-                      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
+                      <motion.div key={`delivered-${activeOrder.status}`} initial={shouldReduceMotion ? false : { scale: 0.72 }} animate={{ scale: 1 }} transition={{ type: 'spring', stiffness: 380, damping: 25 }} className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${
                         activeOrder.status === 'delivered'
                           ? 'bg-emerald-500 text-white'
                           : 'bg-slate-200 text-slate-500'
                       }`}>
                         📦
-                      </div>
+                      </motion.div>
                       <span className="text-[10px] font-bold text-slate-800">Delivered</span>
                     </div>
                   </div>

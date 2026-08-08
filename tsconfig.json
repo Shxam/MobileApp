@@ -2,15 +2,18 @@
   "compilerOptions": {
     "target": "ES2022",
     "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "useDefineForClassFields": false,
     "module": "ESNext",
+    "moduleResolution": "bundler",
     "lib": [
       "ES2022",
       "DOM",
       "DOM.Iterable"
     ],
+    "types": ["vite/client", "node", "jest"],
     "skipLibCheck": true,
-    "moduleResolution": "bundler",
+    "esModuleInterop": true,
     "isolatedModules": true,
     "moduleDetection": "force",
     "allowJs": true,
@@ -20,7 +23,6 @@
         "./*"
       ]
     },
-    "allowImportingTsExtensions": true,
     "noEmit": true
   },
   "exclude": ["apps/mobile", "node_modules", "dist"]

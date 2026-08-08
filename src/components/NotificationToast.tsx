@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useApp } from '../context/AppContext';
 import { Bell, X, CheckCircle2, AlertCircle, ShoppingBag, Wallet, Calendar } from 'lucide-react';
 

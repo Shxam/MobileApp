@@ -1,0 +1,114 @@
+# ===================================================
+# Helm Default Values for IPL Dhaba Backend
+# ===================================================
+
+replicaCount: 2
+
+image:
+  repository: ghcr.io/shxam/mobileapp/backend
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+imagePullSecrets:
+  - name: ghcr-secret
+
+nameOverride: ""
+fullnameOverride: "ipl-dhaba-backend"
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: "ipl-dhaba-sa"
+
+podAnnotations:
+  prometheus.io/scrape: "true"
+  prometheus.io/port: "3001"
+  prometheus.io/path: "/metrics"
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  fsGroup: 10001
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: false
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 3001
+
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+  hosts:
+    - host: api.ipldhaba.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: api-ipldhaba-tls
+      hosts:
+        - api.ipldhaba.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1024Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+livenessProbe:
+  httpGet:
+    path: /health/live
+    port: 3001
+  initialDelaySeconds: 15
+  periodSeconds: 10
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health/ready
+    port: 3001
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+env:
+  NODE_ENV: "production"
+  PORT: "3001"
+  REDIS_HOST: "ipldhaba-prod-redis.internal"
+  REDIS_PORT: "6379"
+
+secrets:
+  databaseUrl: "postgresql://ipldhaba_prod_owner:PROD_SECRET_PASSWORD@ep-prod-primary-789012.ap-southeast-1.aws.neon.tech/ipldhaba_prod?sslmode=require&pgbouncer=true"
+  redisPassword: "PROD_REDIS_STRONG_SECRET_PASSWORD"
+  jwtSecret: "prod-jwt-secret-key-high-entropy-ipl-dhaba-2026"
+  jwtRefreshSecret: "prod-refresh-secret-key-high-entropy-ipl-dhaba-2026"
+  gatePassSecret: "prod-gatepass-secret-high-entropy-2026"
+  razorpayKeyId: "rzp_live_prodKeyId2026"
+  razorpayKeySecret: "prodLiveSecretKey2026"
+  razorpayWebhookSecret: "prodLiveWebhookSecret2026"
+  alertWebhookUrl: "https://hooks.slack.com/services/PROD/CHANNEL/WEBHOOK"
+
+migrationJob:
+  enabled: true

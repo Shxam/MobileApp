@@ -1,0 +1,33 @@
+# ===================================================
+# IPL Dhaba Android Fastfile — Automation Lanes
+# Version Bump -> Gradle AAB Build -> Play Console Internal Track Upload
+# ===================================================
+
+default_platform(:android)
+
+platform :android do
+  desc "Build signed Android App Bundle (AAB) and upload to Google Play Console Internal Track"
+  lane :internal do
+    # 1. Increment Version Code
+    increment_version_code(
+      app_project_dir: "./android/app"
+    )
+
+    # 2. Build Release AAB Bundle via Gradle
+    gradle(
+      task: "bundle",
+      build_type: "Release",
+      project_dir: "./android"
+    )
+
+    # 3. Upload AAB to Play Console Internal Testing Track
+    upload_to_play_store(
+      track: "internal",
+      aab: "./android/app/build/outputs/bundle/release/app-release.aab",
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end

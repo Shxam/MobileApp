@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Radio, RefreshCw, ChevronLeft, ChevronRight, Trophy, Zap, X, Activity } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatedValue } from './AnimatedValue';
+import { Radio, RefreshCw, Trophy, Zap, X, Activity, ChevronRight, Star } from 'lucide-react';
 
 interface ScoreCardItem {
   id: string;
@@ -26,11 +27,11 @@ const MOCK_CRICKET_DATA: ScoreCardItem[] = [
   {
     id: 'm1',
     type: 'score',
-    matchTitle: 'ROYAL CHALLENGERS BENGALURU VS CHENNAI SUPER KINGS',
+    matchTitle: 'RCB VS CSK • T20 MATCHDAY',
     series: 'IPL 2026 SEASON OPENER • M CHINNASWAMY STADIUM',
-    team1: { name: 'Bengaluru', code: 'RCB', score: '184/4', overs: '18.2 Overs', flagBg: 'bg-red-600' },
+    team1: { name: 'Bengaluru', code: 'RCB', score: '184/4', overs: '18.2 Overs', flagBg: 'bg-rose-600' },
     team2: { name: 'Chennai', code: 'CSK', score: '178/6', overs: '20.0 Overs', flagBg: 'bg-amber-500' },
-    statusText: '⚡ RCB need 7 runs in 10 balls to win',
+    statusText: 'RCB need 7 runs in 10 balls to win',
     isLive: true,
     scorecardDetails: {
       team1Batter: 'V. Kohli 78* (44) • R. Patidar 42 (21)',
@@ -43,11 +44,11 @@ const MOCK_CRICKET_DATA: ScoreCardItem[] = [
   {
     id: 'm2',
     type: 'score',
-    matchTitle: 'INDIA VS AUSTRALIA, 3RD T20I',
+    matchTitle: 'INDIA VS AUSTRALIA • 3RD T20I',
     series: 'AUSTRALIA TOUR OF INDIA 2026',
     team1: { name: 'India', code: 'IND', score: '208/5', overs: '20.0 Overs', flagBg: 'bg-blue-600' },
-    team2: { name: 'Australia', code: 'AUS', score: '195/8', overs: '19.4 Overs', flagBg: 'bg-yellow-500' },
-    statusText: '⚡ IND lead series 2-1 • 14 runs needed off 2 balls',
+    team2: { name: 'Australia', code: 'AUS', score: '195/8', overs: '19.4 Overs', flagBg: 'bg-amber-400 text-slate-950' },
+    statusText: 'IND lead series 2-1 • 14 runs needed off 2 balls',
     isLive: true,
     scorecardDetails: {
       team1Batter: 'S. Yadav 64 (28) • H. Pandya 34* (14)',
@@ -60,11 +61,11 @@ const MOCK_CRICKET_DATA: ScoreCardItem[] = [
   {
     id: 'm3',
     type: 'news',
-    matchTitle: 'SINGARAYAKONDA BOX TURF LEAGUE 2026',
+    matchTitle: 'SINGARAYAKONDA TURF LEAGUE 2026',
     series: 'IPL DHABA ARENA SPECIAL BASH',
     team1: { name: 'Dhaba Strikers', code: 'STR', score: '112/3', overs: '10.0 Overs', flagBg: 'bg-orange-600' },
     team2: { name: 'Turf Kings', code: 'TKG', score: '108/6', overs: '10.0 Overs', flagBg: 'bg-emerald-600' },
-    statusText: '🏆 Strikers win by 4 runs! Free Dum Biryani served to MOTM.',
+    statusText: 'Strikers win by 4 runs! Free Dum Biryani served to MOTM.',
     isLive: false,
     newsTitle: 'Singarayakonda Box Turf League Grand Final Night!',
     newsSummary: 'Dhaba Strikers lifted the IPL Dhaba Champions Trophy at Singarayakonda floodlit arena!',
@@ -72,6 +73,7 @@ const MOCK_CRICKET_DATA: ScoreCardItem[] = [
 ];
 
 export const CricketScoreCarousel: React.FC = () => {
+  const shouldReduceMotion = useReducedMotion();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedScorecard, setSelectedScorecard] = useState<ScoreCardItem | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -92,178 +94,182 @@ export const CricketScoreCarousel: React.FC = () => {
 
   return (
     <div className="space-y-2">
-      {/* Live Cricket Header */}
+      {/* Live Header */}
       <div className="flex items-center justify-between px-1">
-        <h3 className="text-xs font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-          <Activity className="w-4 h-4 text-emerald-400 animate-pulse" />
-          <span>Live Cricket & Match Scores</span>
-        </h3>
-        <span className="text-[10px] text-slate-400 flex items-center gap-1">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-emerald-500 animate-pulse" />
+          <h3 className="text-xs font-black uppercase tracking-wider text-slate-900 dark:text-white">
+            Live Match Scores & Ticker
+          </h3>
+        </div>
+        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-700">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
           Auto-Sync
         </span>
       </div>
 
-      {/* Main Scorecard / News Card Container */}
-      <div className="relative rounded-2xl bg-slate-900 border border-slate-800 p-3.5 shadow-xl overflow-hidden group">
-        {/* Glow Header Accent Bar */}
-        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-red-500 via-amber-500 to-emerald-500" />
-
-        {/* Carousel Content */}
+      {/* Main Scorecard Feature Container */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs hover:shadow-md transition-all space-y-3 relative overflow-hidden">
+        {/* Carousel Slide Animation */}
         <AnimatePresence mode="wait">
           <motion.div
             key={item.id}
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -20 }}
-            transition={{ duration: 0.3 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.25 }}
             className="space-y-3"
           >
-            {/* Top Match Info Row */}
-            <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2">
+            {/* Top Match Info Bar */}
+            <div className="flex items-center justify-between gap-2 border-b border-slate-100 dark:border-slate-800 pb-2.5">
               <div className="flex items-center gap-2 min-w-0">
                 {item.isLive ? (
-                  <span className="flex items-center gap-1 text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-red-500/20 text-red-400 border border-red-500/40 shrink-0">
-                    <Radio className="w-3 h-3 text-red-400 animate-pulse" />
-                    LIVE
+                  <span className="flex items-center gap-1 text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 shrink-0 shadow-xs">
+                    <Radio className="w-3 h-3 text-emerald-500 animate-pulse" />
+                    LIVE MATCH
                   </span>
                 ) : (
-                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/40 shrink-0">
-                    RESULT
+                  <span className="text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 shrink-0">
+                    MATCH RESULT
                   </span>
                 )}
-                <span className="text-[10px] font-extrabold text-amber-300 truncate uppercase tracking-tight">
+                <span className="text-[11px] font-extrabold text-slate-800 dark:text-slate-200 truncate">
                   {item.matchTitle}
                 </span>
               </div>
 
+              {/* Refresh Score Button */}
               <button
                 onClick={handleRefresh}
-                className="text-slate-400 hover:text-amber-400 transition-colors p-1"
+                className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors shrink-0"
                 title="Refresh Live Score"
               >
-                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-amber-400' : ''}`} />
+                <motion.span animate={isRefreshing && !shouldReduceMotion ? { rotate: 360 } : { rotate: 0 }} transition={{ duration: 0.8, ease: 'linear' }}>
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'text-emerald-500' : ''}`} />
+                </motion.span>
               </button>
             </div>
 
-            {/* Teams & Scores Row */}
+            {/* Teams & Score Metrics Row */}
             <div className="flex items-center justify-between gap-2 py-1">
               {/* Team 1 */}
-              <div className="flex items-center gap-2">
-                <div className={`w-8 h-8 rounded-full ${item.team1.flagBg} flex items-center justify-center font-black text-[11px] text-white shadow-md border border-white/20 shrink-0`}>
+              <div className="flex items-center gap-2.5">
+                <div className={`w-9 h-9 rounded-full ${item.team1.flagBg} flex items-center justify-center font-black text-xs text-white shadow-xs shrink-0 border border-white/20`}>
                   {item.team1.code}
                 </div>
                 <div>
-                  <div className="font-extrabold text-base text-white leading-tight">
-                    {item.team1.score}
+                  <div className="font-black text-lg text-slate-900 dark:text-white leading-tight">
+                    <AnimatedValue value={item.team1.score} />
                   </div>
-                  <div className="text-[10px] text-slate-400 font-medium">
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
                     {item.team1.overs}
                   </div>
                 </div>
               </div>
 
               {/* VS Divider */}
-              <div className="w-7 h-7 rounded-full bg-slate-950 border border-slate-800 flex items-center justify-center text-[10px] font-black text-slate-400 shrink-0">
+              <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 flex items-center justify-center text-[10px] font-black text-slate-400 dark:text-slate-500 shrink-0">
                 VS
               </div>
 
               {/* Team 2 */}
-              <div className="flex items-center gap-2 text-right">
+              <div className="flex items-center gap-2.5 text-right">
                 <div>
-                  <div className="font-extrabold text-base text-emerald-400 leading-tight">
-                    {item.team2.score}
+                  <div className="font-black text-lg text-slate-900 dark:text-white leading-tight">
+                    <AnimatedValue value={item.team2.score} />
                   </div>
-                  <div className="text-[10px] text-slate-400 font-medium">
+                  <div className="text-[10px] text-slate-500 dark:text-slate-400 font-bold">
                     {item.team2.overs}
                   </div>
                 </div>
-                <div className={`w-8 h-8 rounded-full ${item.team2.flagBg} flex items-center justify-center font-black text-[11px] text-white shadow-md border border-white/20 shrink-0`}>
+                <div className={`w-9 h-9 rounded-full ${item.team2.flagBg} flex items-center justify-center font-black text-xs text-white shadow-xs shrink-0 border border-white/20`}>
                   {item.team2.code}
                 </div>
               </div>
-
-              {/* Scorecard Action Button */}
-              <button
-                onClick={() => setSelectedScorecard(item)}
-                className="bg-amber-500/10 hover:bg-amber-500 border border-amber-500/40 text-amber-400 hover:text-slate-950 px-2.5 py-1.5 rounded-xl text-[10px] font-extrabold uppercase tracking-wider transition-all shadow-sm shrink-0 ml-1"
-              >
-                SCORECARD
-              </button>
             </div>
 
-            {/* Bottom Status / Commentary Ticker */}
-            <div className="bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800/80 flex items-center justify-between text-[11px]">
-              <span className="text-amber-300 font-medium truncate flex items-center gap-1.5">
-                <Zap className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span>{item.statusText}</span>
-              </span>
+            {/* Live Ticker & Action Button */}
+            <div className="bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-100 dark:border-emerald-900/50 rounded-2xl p-2.5 flex items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 text-emerald-900 dark:text-emerald-200 font-bold truncate min-w-0">
+                <Zap className="w-4 h-4 text-emerald-500 shrink-0 fill-emerald-500" />
+                <span className="truncate">{item.statusText}</span>
+              </div>
+
+              <button
+                onClick={() => setSelectedScorecard(item)}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold text-[11px] px-3.5 py-1.5 rounded-full shadow-green-sm active:scale-95 transition-all shrink-0 flex items-center gap-1"
+              >
+                <span>Scorecard</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
             </div>
           </motion.div>
         </AnimatePresence>
 
-        {/* Carousel Navigation Dots */}
-        <div className="flex items-center justify-center gap-1.5 pt-2.5">
+        {/* Carousel Dots */}
+        <div className="flex items-center justify-center gap-1.5 pt-1">
           {MOCK_CRICKET_DATA.map((_, idx) => (
             <button
               key={idx}
               onClick={() => setCurrentIndex(idx)}
               className={`h-1.5 rounded-full transition-all ${
-                currentIndex === idx
-                  ? 'w-6 bg-amber-400'
-                  : 'w-1.5 bg-slate-800 hover:bg-slate-700'
+                currentIndex === idx ? 'w-6 bg-emerald-500 shadow-green-sm' : 'w-1.5 bg-slate-200 dark:bg-slate-800'
               }`}
             />
           ))}
         </div>
       </div>
 
-      {/* Detailed Scorecard Modal */}
+      {/* FULL SCORECARD MODAL */}
       <AnimatePresence>
         {selectedScorecard && (
-          <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4">
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className="w-full max-w-sm bg-slate-900 border border-amber-500/40 rounded-3xl p-5 text-white space-y-4 shadow-2xl relative"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 space-y-4 shadow-2xl relative text-slate-900 dark:text-white"
             >
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                <div>
+                  <h3 className="font-black text-slate-900 dark:text-white text-base">{selectedScorecard.matchTitle}</h3>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 font-semibold">{selectedScorecard.series}</p>
+                </div>
+                <button
+                  onClick={() => setSelectedScorecard(null)}
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Scorecard Detailed Stats */}
+              {selectedScorecard.scorecardDetails && (
+                <div className="space-y-3 text-xs">
+                  <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-2xl p-3 space-y-1.5">
+                    <div className="font-bold text-slate-500 dark:text-slate-400 text-[10px] uppercase">Batting Crease</div>
+                    <div className="font-extrabold text-slate-900 dark:text-white">{selectedScorecard.scorecardDetails.team1Batter}</div>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200/80 dark:border-slate-700 rounded-2xl p-3 space-y-1.5">
+                    <div className="font-bold text-slate-500 dark:text-slate-400 text-[10px] uppercase">Current Bowler</div>
+                    <div className="font-extrabold text-slate-900 dark:text-white">{selectedScorecard.scorecardDetails.team1Bowler}</div>
+                  </div>
+
+                  <div className="flex items-center justify-between bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-100 dark:border-emerald-900/50 p-3 rounded-2xl text-emerald-900 dark:text-emerald-200 font-extrabold">
+                    <span>{selectedScorecard.scorecardDetails.crr}</span>
+                    <span>{selectedScorecard.scorecardDetails.rrr || selectedScorecard.scorecardDetails.target}</span>
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={() => setSelectedScorecard(null)}
-                className="absolute top-3 right-3 p-1.5 rounded-xl bg-slate-800 text-slate-400 hover:text-white"
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full shadow-green-sm text-xs"
               >
-                <X className="w-4 h-4" />
+                Close Scorecard
               </button>
-
-              <div className="text-left space-y-1">
-                <span className="text-[10px] bg-red-500/20 text-red-400 font-extrabold px-2 py-0.5 rounded border border-red-500/30">
-                  LIVE MATCH SCORECARD
-                </span>
-                <h3 className="font-extrabold text-sm text-amber-400">{selectedScorecard.matchTitle}</h3>
-                <p className="text-[10px] text-slate-400">{selectedScorecard.series}</p>
-              </div>
-
-              <div className="bg-slate-950 p-3 rounded-2xl border border-slate-800 space-y-2 text-xs text-left">
-                <div className="flex justify-between items-center font-black text-sm text-white">
-                  <span>{selectedScorecard.team1.code}: {selectedScorecard.team1.score}</span>
-                  <span className="text-emerald-400">{selectedScorecard.team2.code}: {selectedScorecard.team2.score}</span>
-                </div>
-
-                {selectedScorecard.scorecardDetails && (
-                  <div className="pt-2 border-t border-slate-800 space-y-1 text-[11px] text-slate-300">
-                    <p className="font-semibold"><b className="text-amber-300">Batting:</b> {selectedScorecard.scorecardDetails.team1Batter}</p>
-                    <p className="font-semibold"><b className="text-emerald-400">Bowling:</b> {selectedScorecard.scorecardDetails.team1Bowler}</p>
-                    <div className="flex justify-between text-[10px] text-slate-400 pt-1 font-mono">
-                      <span>{selectedScorecard.scorecardDetails.crr}</span>
-                      <span>{selectedScorecard.scorecardDetails.rrr}</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <div className="text-xs text-amber-300 bg-amber-950/40 p-2.5 rounded-xl border border-amber-500/30 font-medium">
-                {selectedScorecard.statusText}
-              </div>
             </motion.div>
           </div>
         )}

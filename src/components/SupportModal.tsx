@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { MessageSquare, Phone, Send, Bot, User, X } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 interface SupportModalProps {
   isOpen: boolean;

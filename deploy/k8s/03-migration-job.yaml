@@ -1,0 +1,19 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ipl-dhaba-prisma-migration-v1
+  namespace: ipldhaba
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      name: ipl-dhaba-prisma-migration
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: prisma-migrate
+          image: ghcr.io/shxam/mobileapp/backend:latest
+          command: ["npx", "prisma", "migrate", "deploy"]
+          envFrom:
+            - secretRef:
+                name: ipl-dhaba-secret

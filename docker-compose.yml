@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 🚀 NestJS Production Backend Service
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/ipldhaba?sslmode=disable
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=super-secret-jwt-key-ipl-dhaba-2026
+      - JWT_REFRESH_SECRET=super-secret-refresh-key-ipl-dhaba-2026
+    depends_on:
+      - postgres
+      - redis
+    restart: unless-stopped
+
+  # 💾 PostgreSQL 16 Database Service
+  postgres:
+    image: postgres:16-alpine
+    container_name: ipldhaba_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ipldhaba
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  # ⚡ Redis 7 In-Memory Cache & Queue Service
+  redis:
+    image: redis:7-alpine
+    container_name: ipldhaba_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -26,7 +26,8 @@ import {
   Minus,
   Sparkles,
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'motion/react';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
+import { AnimatedValue } from '../components/AnimatedValue';
 
 interface TurfBookingViewProps {
   selectedTurfId?: string;
@@ -37,6 +38,7 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
   selectedTurfId,
   onNavigateHub,
 }) => {
+  const shouldReduceMotion = useReducedMotion();
   const { user, addTurfBooking, deductWallet, topUpWallet, addNotification, language } = useApp();
 
   const [activeTurf, setActiveTurf] = useState<Turf | null>(
@@ -64,14 +66,14 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
   // Generate 8 Full Matchday Slots Across 4 Categories
   const generateSlots = (turf: Turf): TurfSlot[] => {
     return [
-      { id: 's1', time: '06:00 AM - 07:00 AM', price: 900, status: 'available', isFloodlit: false, category: 'Morning' },
-      { id: 's2', time: '07:00 AM - 08:00 AM', price: 900, status: 'available', isFloodlit: false, category: 'Morning' },
-      { id: 's3', time: '03:00 PM - 04:00 PM', price: 1000, status: 'available', isFloodlit: false, category: 'Afternoon' },
-      { id: 's4', time: '04:00 PM - 05:00 PM', price: 1000, status: 'available', isFloodlit: false, category: 'Afternoon' },
-      { id: 's5', time: '06:00 PM - 07:00 PM', price: 1200, status: 'available', isFloodlit: true, category: 'Prime Evening' },
-      { id: 's6', time: '07:00 PM - 08:00 PM', price: 1200, status: 'available', isFloodlit: true, category: 'Prime Evening' },
-      { id: 's7', time: '08:00 PM - 09:00 PM', price: 1300, status: 'available', isFloodlit: true, category: 'Night Floodlit' },
-      { id: 's8', time: '09:00 PM - 10:00 PM', price: 1300, status: 'available', isFloodlit: true, category: 'Night Floodlit' },
+      { id: 's1', time: '6:00 - 7:00', price: 900, status: 'available', isFloodlit: false, category: 'Morning' },
+      { id: 's2', time: '7:00 - 8:00', price: 900, status: 'available', isFloodlit: false, category: 'Morning' },
+      { id: 's3', time: '3:00 - 4:00', price: 1000, status: 'available', isFloodlit: false, category: 'Afternoon' },
+      { id: 's4', time: '4:00 - 5:00', price: 1000, status: 'available', isFloodlit: false, category: 'Afternoon' },
+      { id: 's5', time: '6:00 - 7:00', price: 1200, status: 'available', isFloodlit: true, category: 'Prime Evening' },
+      { id: 's6', time: '7:00 - 8:00', price: 1200, status: 'available', isFloodlit: true, category: 'Prime Evening' },
+      { id: 's7', time: '8:00 - 9:00', price: 1300, status: 'available', isFloodlit: true, category: 'Night Floodlit' },
+      { id: 's8', time: '9:00 - 10:00', price: 1300, status: 'available', isFloodlit: true, category: 'Night Floodlit' },
     ];
   };
 
@@ -164,22 +166,22 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
   const startDateObj = new Date(selectedDate || Date.now());
 
   return (
-    <div className="space-y-4 p-4 pb-28 bg-slate-50 min-h-screen text-slate-900">
+    <div className="space-y-4 p-4 pb-28 bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-900 dark:text-white transition-colors">
       
       {/* 1. Header Banner */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-black text-slate-900 tracking-tight">Box Turf Booking</h2>
-          <p className="text-xs text-slate-500 font-medium">Floodlit 500 Lux Cage • Singarayakonda, AP</p>
+          <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Box Turf Booking</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Floodlit 500 Lux Cage • Singarayakonda, AP</p>
         </div>
-        <span className="bg-rose-50 text-rose-600 border border-rose-200 font-extrabold text-xs px-3 py-1 rounded-full shadow-xs">
+        <span className="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 font-extrabold text-xs px-3 py-1 rounded-full shadow-xs">
           From ₹900/hr
         </span>
       </div>
 
       {/* 2. Turf Main Feature Card */}
       {activeTurf && (
-        <div className="bg-white border border-slate-200/80 rounded-3xl p-4 shadow-xs space-y-4">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs space-y-4">
           <div className="relative rounded-2xl overflow-hidden h-44 bg-slate-100">
             <img src={activeTurf.image} alt={activeTurf.name} className="w-full h-full object-cover" />
             <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-full text-xs font-extrabold text-slate-900 flex items-center gap-1 shadow-xs">
@@ -192,9 +194,9 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
           </div>
 
           <div className="space-y-1">
-            <h3 className="font-extrabold text-slate-900 text-base">{activeTurf.name}</h3>
-            <p className="text-xs text-slate-500 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-rose-500" />
+            <h3 className="font-extrabold text-slate-900 dark:text-white text-base">{activeTurf.name}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
+              <MapPin className="w-3.5 h-3.5 text-emerald-500" />
               <span>{activeTurf.address}</span>
             </p>
           </div>
@@ -202,22 +204,22 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
           {/* Amenities Chips */}
           <div className="flex flex-wrap gap-1.5 pt-1">
             {activeTurf.amenities.map((amenity, idx) => (
-              <span key={idx} className="bg-slate-100 text-slate-700 text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-200/60">
+              <span key={idx} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-200/60 dark:border-slate-700">
                 {amenity}
               </span>
             ))}
           </div>
 
           {/* 3. CALENDAR PICKER & DATE SELECTOR BAR */}
-          <div className="space-y-2.5 pt-2 border-t border-slate-100">
+          <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs">
               <div className="flex items-center gap-2">
-                <span className="font-extrabold text-slate-900">Select Date</span>
+                <span className="font-extrabold text-slate-900 dark:text-white">Select Date</span>
                 
                 {/* Visual Interactive Month Calendar Button */}
                 <button
                   onClick={() => setShowCalendarModal(true)}
-                  className="bg-rose-500 hover:bg-rose-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-extrabold shadow-pink-sm active:scale-95 transition-all"
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-extrabold shadow-green-sm active:scale-95 transition-all"
                 >
                   <CalendarIcon className="w-3.5 h-3.5" />
                   <span>Pick Future Date 📅</span>
@@ -225,12 +227,12 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
               </div>
 
               {/* Selected Date Tag */}
-              <span className="text-rose-600 font-extrabold bg-rose-50 px-3 py-1 rounded-full border border-rose-200 text-xs">
+              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 text-xs">
                 {selectedDate}
               </span>
             </div>
 
-            {/* Quick Date Strip (Starts from selectedDate) */}
+            {/* Quick Date Strip */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
               {[0, 1, 2, 3, 4, 5, 6, 7].map((offset) => {
                 const dateObj = new Date(startDateObj.getTime() + offset * 86400000);
@@ -245,8 +247,8 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
                     onClick={() => setSelectedDate(dateStr)}
                     className={`flex flex-col items-center justify-center min-w-[56px] py-2.5 rounded-2xl border transition-all shrink-0 ${
                       isSelected
-                        ? 'bg-rose-500 text-white border-rose-500 shadow-pink-sm scale-105 font-bold'
-                        : 'bg-slate-50 text-slate-700 border-slate-200/80 hover:bg-slate-100'
+                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm scale-105 font-bold'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
                     }`}
                   >
                     <span className="text-[10px] uppercase opacity-80">{dayName}</span>
@@ -258,10 +260,10 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
           </div>
 
           {/* 4. Slot Category Filter Tabs */}
-          <div className="space-y-2.5 pt-2 border-t border-slate-100">
+          <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-extrabold text-slate-900">Available Time Slots</h4>
-              <span className="text-[11px] font-bold text-rose-500">{filteredSlots.length} slots</span>
+              <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">Available Time Slots</h4>
+              <span className="text-[11px] font-bold text-emerald-500">{filteredSlots.length} slots</span>
             </div>
 
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
@@ -271,8 +273,8 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
                   onClick={() => setActiveSlotCategory(cat)}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition-all border ${
                     activeSlotCategory === cat
-                      ? 'bg-slate-900 text-white border-slate-900 shadow-xs'
-                      : 'bg-slate-50 text-slate-600 border-slate-200/80 hover:bg-slate-100'
+                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 shadow-xs'
+                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
                   }`}
                 >
                   {cat}
@@ -281,32 +283,51 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
             </div>
 
             {/* Slots Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
               {filteredSlots.map((slot) => {
                 const isSelected = selectedSlot?.id === slot.id;
                 return (
                   <div
                     key={slot.id}
                     onClick={() => setSelectedSlot(isSelected ? null : slot)}
-                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex items-center justify-between ${
+                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between overflow-hidden relative ${
                       isSelected
-                        ? 'bg-rose-50 border-rose-400 text-rose-900 shadow-pink-sm'
-                        : 'bg-white border-slate-200/80 hover:border-rose-200'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-950 dark:text-emerald-100 shadow-md ring-2 ring-emerald-500/30'
+                        : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 shadow-xs'
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div className={`w-9 h-9 rounded-xl flex items-center justify-center font-bold text-xs ${isSelected ? 'bg-rose-500 text-white shadow-pink-sm' : 'bg-slate-100 text-slate-700'}`}>
+                    {/* Tier 1: Header Category Label + Top Right Price Badge */}
+                    <div className="flex items-center justify-between gap-1 mb-2">
+                      <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        {slot.category}
+                      </span>
+                      <span className={`font-black text-xs px-2.5 py-0.5 rounded-md border shrink-0 ${
+                        isSelected
+                          ? 'bg-emerald-500 text-white border-emerald-400 shadow-xs'
+                          : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                      }`}>
+                        ₹{slot.price}
+                      </span>
+                    </div>
+
+                    {/* Tier 2: Dedicated Time Display (Full Card Width - Cannot Overlap) */}
+                    <div className="flex items-center gap-2 py-1">
+                      <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${isSelected ? 'bg-emerald-500 text-white shadow-green-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}>
                         🏏
                       </div>
-                      <div>
-                        <div className="font-extrabold text-xs text-slate-900">{slot.time}</div>
-                        <div className="text-[10px] text-slate-500 font-medium flex items-center gap-1">
-                          <span>{slot.category}</span>
-                          {slot.isFloodlit && <span className="text-emerald-600 font-bold">• ⚡ Floodlit</span>}
-                        </div>
+                      <div className="font-black text-xs text-slate-900 dark:text-white tracking-tight whitespace-nowrap min-w-0">
+                        {slot.time}
                       </div>
                     </div>
-                    <span className="font-black text-rose-600 text-sm">₹{slot.price}</span>
+
+                    {/* Tier 3: Floodlit Tag Footer */}
+                    {slot.isFloodlit && (
+                      <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
+                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1">
+                          ⚡ Floodlit Arena
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -314,48 +335,62 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
           </div>
 
           {/* Match Format Options */}
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <h4 className="text-xs font-extrabold text-slate-900">Match Format</h4>
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">Match Format</h4>
             <div className="grid grid-cols-2 gap-2">
               {['Box Cricket T10', 'Box Cricket 6v6'].map((fmt) => (
-                <button
+                <motion.button
                   key={fmt}
+                  type="button"
                   onClick={() => setMatchFormat(fmt)}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.96 }}
                   className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
                     matchFormat === fmt
-                      ? 'bg-rose-500 text-white border-rose-500 shadow-pink-sm'
-                      : 'bg-slate-50 border-slate-200 text-slate-700 hover:bg-slate-100'
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm'
+                      : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
                   }`}
                 >
                   {fmt}
-                </button>
+                </motion.button>
               ))}
             </div>
           </div>
 
           {/* Add-ons List */}
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <h4 className="text-xs font-extrabold text-slate-900">Matchday Add-ons</h4>
+          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">Matchday Add-ons</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {ADDONS_LIST.map((addon) => {
                 const Icon = addon.icon;
                 const isChecked = selectedAddons.some((a) => a.name === addon.name);
                 return (
-                  <div
+                  <motion.button
+                    type="button"
                     key={addon.name}
                     onClick={() => toggleAddon(addon)}
+                    whileTap={{ scale: 0.98 }}
                     className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
                       isChecked
-                        ? 'bg-rose-50 border-rose-300 text-rose-900'
-                        : 'bg-slate-50 border-slate-200/80 hover:bg-slate-100 text-slate-700'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-200'
                     }`}
                   >
                     <div className="flex items-center gap-2">
-                      <Icon className={`w-4 h-4 ${isChecked ? 'text-rose-600' : 'text-slate-400'}`} />
+                      <Icon className={`w-4 h-4 ${isChecked ? 'text-emerald-600' : 'text-slate-400'}`} />
                       <span className="text-xs font-bold">{addon.name}</span>
                     </div>
-                    <span className="text-xs font-extrabold text-rose-600">+₹{addon.price}</span>
-                  </div>
+                    <span className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-600">
+                      +₹{addon.price}
+                      <AnimatePresence initial={false}>
+                        {isChecked && (
+                          <motion.svg viewBox="0 0 20 20" className="h-4 w-4 rounded-full bg-emerald-500 p-0.5 text-white" initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} exit={{ pathLength: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
+                            <motion.path d="M4 10.5 8 14l8-8" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                          </motion.svg>
+                        )}
+                      </AnimatePresence>
+                    </span>
+                  </motion.button>
                 );
               })}
             </div>
@@ -368,13 +403,13 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
         <div className="fixed bottom-16 left-0 right-0 z-30 p-3">
           <div className="max-w-md mx-auto bg-slate-900 text-white rounded-full p-3 px-5 shadow-2xl flex items-center justify-between border border-slate-800 backdrop-blur-lg animate-slide-up">
             <div>
-              <div className="text-[10px] text-rose-300 font-semibold uppercase">Total Amount</div>
+              <div className="text-[10px] text-emerald-300 font-semibold uppercase">Total Amount</div>
               <div className="text-xl font-black text-white">₹{calculateTotal()}</div>
             </div>
 
             <button
               onClick={() => setShowModal(true)}
-              className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-extrabold px-6 py-2.5 rounded-full shadow-pink-sm active:scale-95 transition-all flex items-center gap-1.5"
+              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold px-6 py-2.5 rounded-full shadow-green-sm active:scale-95 transition-all flex items-center gap-1.5"
             >
               <span>Confirm & Book Slot</span>
               <ChevronRight className="w-4 h-4" />
@@ -391,13 +426,13 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm bg-white rounded-3xl p-5 space-y-4 shadow-2xl relative"
+              className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-4 shadow-2xl relative"
             >
               {/* Header */}
-              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
-                  <CalendarIcon className="w-5 h-5 text-rose-500" />
-                  <h3 className="font-extrabold text-slate-900 text-sm">Select Future Booking Date</h3>
+                  <CalendarIcon className="w-5 h-5 text-emerald-500" />
+                  <h3 className="font-extrabold text-slate-900 dark:text-white text-sm">Select Future Booking Date</h3>
                 </div>
                 <button
                   onClick={() => setShowCalendarModal(false)}
@@ -452,26 +487,28 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
                   const isSelected = selectedDate === thisDateStr;
 
                   return (
-                    <button
+                    <motion.button
                       key={day}
                       onClick={() => handleSelectCalendarDate(day)}
-                      className={`h-9.5 rounded-xl font-bold text-xs flex flex-col items-center justify-center transition-all ${
+                      whileTap={{ scale: 0.92 }}
+                      className={`relative overflow-hidden h-9.5 rounded-xl font-bold text-xs flex flex-col items-center justify-center transition-all ${
                         isSelected
-                          ? 'bg-rose-500 text-white shadow-pink-sm scale-110 font-extrabold z-10'
+                          ? 'text-white shadow-green-sm scale-110 font-extrabold z-10'
                           : isToday
-                          ? 'bg-rose-50 text-rose-600 border border-rose-200'
-                          : 'bg-slate-50 text-slate-800 hover:bg-rose-50 hover:text-rose-600'
+                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+                          : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-emerald-50 hover:text-emerald-600'
                       }`}
                     >
-                      <span>{day}</span>
-                    </button>
+                      {isSelected && <motion.span layoutId="booking-date" transition={{ type: 'spring', stiffness: 380, damping: 28 }} className="absolute inset-0 rounded-xl bg-emerald-500" />}
+                      <span className="relative">{day}</span>
+                    </motion.button>
                   );
                 })}
               </div>
 
               {/* Manual Date Input Picker Backup */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-600">Specific Date:</span>
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
+                <span className="font-bold text-slate-600 dark:text-slate-300">Specific Date:</span>
                 <input
                   type="date"
                   value={selectedDate}
@@ -481,7 +518,7 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
                       setShowCalendarModal(false);
                     }
                   }}
-                  className="bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5 text-xs text-slate-900 font-extrabold focus:outline-none focus:border-rose-500"
+                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white font-extrabold focus:outline-none focus:border-emerald-500"
                 />
               </div>
             </motion.div>
@@ -497,41 +534,41 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="w-full max-w-md bg-white rounded-t-3xl sm:rounded-3xl overflow-hidden p-5 space-y-4 shadow-2xl relative"
+              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl overflow-hidden p-5 space-y-4 shadow-2xl relative"
             >
-              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                <h3 className="font-extrabold text-slate-900 text-base">Booking Summary</h3>
-                <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center">
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+                <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Booking Summary</h3>
+                <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
                   <span>Pitch Slot ({selectedSlot.time})</span>
-                  <span className="font-bold text-slate-900">₹{selectedSlot.price}</span>
+                  <span className="font-bold text-slate-900 dark:text-white">₹{selectedSlot.price}</span>
                 </div>
                 {selectedAddons.map((a) => (
-                  <div key={a.name} className="flex justify-between text-slate-600">
+                  <div key={a.name} className="flex justify-between text-slate-600 dark:text-slate-300">
                     <span>{a.name}</span>
-                    <span className="font-bold text-slate-900">₹{a.price}</span>
+                    <span className="font-bold text-slate-900 dark:text-white">₹{a.price}</span>
                   </div>
                 ))}
-                <div className="flex justify-between text-slate-600">
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
                   <span>Turf GST (18%)</span>
-                  <span className="font-bold text-slate-900">₹{Math.round(calculateTotal() * 0.18)}</span>
+                  <span className="font-bold text-slate-900 dark:text-white">₹{Math.round(calculateTotal() * 0.18)}</span>
                 </div>
 
-                <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-sm font-black text-rose-600">
+                <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center text-sm font-black text-emerald-600">
                   <span>Grand Total</span>
-                  <span>₹{Math.round(calculateTotal() * 1.18)}</span>
+                  <span>₹<AnimatedValue value={Math.round(calculateTotal() * 1.18)} /></span>
                 </div>
               </div>
 
               <button
                 onClick={handleConfirmBooking}
                 disabled={isProcessing}
-                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-extrabold py-3 rounded-full shadow-pink-sm active:scale-95 transition-all text-xs"
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full shadow-green-sm active:scale-95 transition-all text-xs"
               >
                 {isProcessing ? 'Generating QR Pass...' : 'Pay & Confirm Booking'}
               </button>
@@ -548,21 +585,26 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm bg-white rounded-3xl p-6 text-center space-y-4 shadow-2xl"
+              className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 text-center space-y-4 shadow-2xl"
             >
               <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl">
                 ✓
               </div>
 
               <div className="space-y-1">
-                <h3 className="font-black text-slate-900 text-lg">Slot Reserved!</h3>
-                <p className="text-xs text-slate-500">Show this QR pass at Singarayakonda Pitch gate</p>
+                <h3 className="font-black text-slate-900 dark:text-white text-lg">Slot Reserved!</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">Show this QR pass at Singarayakonda Pitch gate</p>
               </div>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
-                <div className="w-40 h-40 bg-white p-2 mx-auto rounded-xl shadow-inner flex items-center justify-center border border-slate-200">
+              <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-2">
+                <motion.div
+                  initial={shouldReduceMotion ? false : { clipPath: 'inset(0 0 100% 0)', opacity: 0 }}
+                  animate={{ clipPath: 'inset(0 0 0% 0)', opacity: 1 }}
+                  transition={{ duration: 0.4, ease: 'easeOut' }}
+                  className="w-40 h-40 bg-white p-2 mx-auto rounded-xl shadow-inner flex items-center justify-center border border-slate-200"
+                >
                   <QrCode className="w-32 h-32 text-slate-900" />
-                </div>
+                </motion.div>
                 <div className="text-[10px] text-slate-400 font-mono">PASS #{confirmedBookingId}</div>
               </div>
 
@@ -571,7 +613,7 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
                   setConfirmedBookingId(null);
                   onNavigateHub();
                 }}
-                className="w-full bg-rose-500 hover:bg-rose-600 text-white font-extrabold py-3 rounded-full shadow-pink-sm text-xs"
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full shadow-green-sm text-xs"
               >
                 View in My Hub
               </button>

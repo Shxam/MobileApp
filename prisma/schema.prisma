@@ -1,0 +1,212 @@
+// ===================================================
+// IPL Dhaba Super App — Prisma Database Schema
+// PostgreSQL Production Domain Data Models & Relations
+// ===================================================
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum OrderStatus {
+  placed
+  preparing
+  out_for_delivery
+  delivered
+  cancelled
+}
+
+enum BookingStatus {
+  confirmed
+  cancelled
+  completed
+}
+
+enum TransactionType {
+  topup
+  deduct
+  refund
+}
+
+enum Role {
+  customer
+  kitchen_staff
+  delivery_partner
+  partner
+  admin
+}
+
+model User {
+  id                 String              @id @default(uuid())
+  firebaseUid        String?             @unique
+  phone              String              @unique
+  name               String?             @default("IPL Dhaba Fan")
+  favoriteTeam       String?
+  role               Role                @default(customer)
+  employeeId         String?             @unique
+  pin                String?
+  dhabaId            String?             @default("dhaba_singarayakonda")
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+
+  orders             Order[]
+  bookings           Booking[]
+  walletTransactions WalletTransaction[]
+  fanPoints          FanPoints?
+  notifications      Notification[]
+  reviews            Review[]
+
+  @@map("users")
+}
+
+model MenuItem {
+  id          String      @id @default(uuid())
+  name        String
+  description String
+  price       Float
+  category    String
+  image       String
+  isVeg       Boolean     @default(true)
+  isAvailable Boolean     @default(true)
+  rating      Float       @default(4.8)
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  orderItems  OrderItem[]
+
+  @@map("menu_items")
+}
+
+model Order {
+  id           String      @id @default(uuid())
+  userId       String
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status       OrderStatus @default(placed)
+  totalAmount  Float
+  deliveryType String      @default("turf_bench")
+  paymentMethod String     @default("upi")
+  paymentId    String?
+  deliveryTarget String
+  cookingInstructions String?
+  estimatedDeliveryMinutes Int @default(25)
+  driverName String?
+  driverPhone String?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  items        OrderItem[]
+  reviews      Review[]
+  driverLocation DriverLocation?
+
+  @@map("orders")
+}
+
+model DriverLocation {
+  id        String   @id @default(uuid())
+  orderId   String   @unique
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  latitude  Float
+  longitude Float
+  heading   Float?
+  updatedAt DateTime @updatedAt
+
+  @@map("driver_locations")
+}
+
+model OrderItem {
+  id         String   @id @default(uuid())
+  orderId    String
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId String
+  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
+  quantity   Int
+  price      Float
+
+  @@map("order_items")
+}
+
+model TurfSlot {
+  id          String   @id @default(uuid())
+  pitchName   String   @default("Stadium Box Turf A")
+  startTime   DateTime
+  endTime     DateTime
+  price       Float
+  isBooked    Boolean  @default(false)
+  category    String   @default("Floodlit Night")
+  createdAt   DateTime @default(now())
+
+  bookings    Booking[]
+
+  @@map("turf_slots")
+}
+
+model Booking {
+  id           String        @id @default(uuid())
+  userId       String
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slotId       String
+  slot         TurfSlot      @relation(fields: [slotId], references: [id])
+  status       BookingStatus @default(confirmed)
+  totalAmount  Float
+  gatePassToken String       @unique
+  addons       String[]      @default([])
+  createdAt    DateTime      @default(now())
+
+  reviews      Review[]
+
+  @@map("bookings")
+}
+
+model WalletTransaction {
+  id          String          @id @default(uuid())
+  userId      String
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount      Float
+  type        TransactionType
+  description String
+  createdAt   DateTime        @default(now())
+
+  @@map("wallet_transactions")
+}
+
+model FanPoints {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  balance   Int      @default(100)
+  updatedAt DateTime @updatedAt
+
+  @@map("fan_points")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   @default("general")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("notifications")
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId   String?
+  order     Order?   @relation(fields: [orderId], references: [id])
+  bookingId String?
+  booking   Booking? @relation(fields: [bookingId], references: [id])
+  rating    Int
+  comment   String
+  createdAt DateTime @default(now())
+
+  @@map("reviews")
+}
