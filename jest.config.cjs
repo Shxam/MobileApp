@@ -6,10 +6,11 @@ module.exports = {
   testMatch: ['**/*.spec.ts', '**/*.test.ts'],
   transform: {
     '^.+\\.(ts|tsx)$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
+    '^.+\\.(js|jsx)$': ['ts-jest', { tsconfig: 'tsconfig.json' }],
   },
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/$1',
   },
-  transformIgnorePatterns: ['/node_modules/(?!(jose|jwks-rsa|firebase-admin)/)'],
+  transformIgnorePatterns: ['node_modules/(?!(jose|jwks-rsa|firebase-admin)/)'],
   testTimeout: 30000,
 };
