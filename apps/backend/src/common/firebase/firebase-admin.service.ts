@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import * as admin from 'firebase-admin';
+import * as firebaseAdmin from 'firebase-admin';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -8,8 +8,8 @@ export class FirebaseAdminService implements OnModuleInit {
   private readonly logger = new Logger(FirebaseAdminService.name);
   private initialized = false;
 
-  private get sdk(): any {
-    return (admin as any).default || admin;
+  private get admin(): any {
+    return (firebaseAdmin as any).default || firebaseAdmin;
   }
 
   onModuleInit() {
@@ -17,42 +17,53 @@ export class FirebaseAdminService implements OnModuleInit {
   }
 
   private initFirebase() {
-    const firebaseAdmin = this.sdk;
-    if (firebaseAdmin.apps && firebaseAdmin.apps.length > 0) {
+    const adminSDK = this.admin;
+    const apps = adminSDK.apps || (adminSDK.default && adminSDK.default.apps);
+    if (apps && apps.length > 0) {
       this.initialized = true;
       return;
     }
 
     try {
-      // Strategy 1: Look for firebase-service-account.json file in root
       const serviceAccountPath = path.resolve(process.cwd(), 'firebase-service-account.json');
 
       if (fs.existsSync(serviceAccountPath)) {
         const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
-        firebaseAdmin.initializeApp({
-          credential: firebaseAdmin.credential.cert(serviceAccount),
-        });
-        this.initialized = true;
-        this.logger.log('🔥 Firebase Admin initialized using service account file');
-        return;
+        if (serviceAccount.private_key) {
+          serviceAccount.private_key = serviceAccount.private_key.replace(/\\n/g, '\n');
+        }
+
+        const certFn = adminSDK.credential?.cert || (adminSDK.default && adminSDK.default.credential && adminSDK.default.credential.cert);
+        const initFn = adminSDK.initializeApp || (adminSDK.default && adminSDK.default.initializeApp);
+
+        if (initFn && certFn) {
+          initFn({ credential: certFn(serviceAccount) });
+          this.initialized = true;
+          this.logger.log('🔥 Firebase Admin initialized using service account file');
+          return;
+        }
       }
 
-      // Strategy 2: Use environment variables
       const projectId = process.env.FIREBASE_PROJECT_ID;
       const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
       const privateKey = process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n');
 
       if (projectId && clientEmail && privateKey) {
-        firebaseAdmin.initializeApp({
-          credential: firebaseAdmin.credential.cert({
-            projectId,
-            clientEmail,
-            privateKey,
-          }),
-        });
-        this.initialized = true;
-        this.logger.log('🔥 Firebase Admin initialized using environment variables');
-        return;
+        const certFn = adminSDK.credential?.cert || (adminSDK.default && adminSDK.default.credential && adminSDK.default.credential.cert);
+        const initFn = adminSDK.initializeApp || (adminSDK.default && adminSDK.default.initializeApp);
+
+        if (initFn && certFn) {
+          initFn({
+            credential: certFn({
+              projectId,
+              clientEmail,
+              privateKey,
+            }),
+          });
+          this.initialized = true;
+          this.logger.log('🔥 Firebase Admin initialized using environment variables');
+          return;
+        }
       }
 
       this.logger.warn('⚠️ Firebase Admin credential missing. Set FIREBASE_* env vars or provide firebase-service-account.json');
@@ -62,8 +73,9 @@ export class FirebaseAdminService implements OnModuleInit {
   }
 
   public isConfigured(): boolean {
-    const firebaseAdmin = this.sdk;
-    return this.initialized || (Boolean(firebaseAdmin.apps) && firebaseAdmin.apps.length > 0);
+    const adminSDK = this.admin;
+    const apps = adminSDK.apps || (adminSDK.default && adminSDK.default.apps);
+    return this.initialized || (Boolean(apps) && apps.length > 0);
   }
 
   /**
@@ -72,10 +84,11 @@ export class FirebaseAdminService implements OnModuleInit {
    * @returns Decoded token containing uid, phone_number, and user claims
    */
   async verifyIdToken(idToken: string): Promise<any> {
-    const firebaseAdmin = this.sdk;
-    if (!this.isConfigured()) {
+    const adminSDK = this.admin;
+    const authFn = adminSDK.auth || (adminSDK.default && adminSDK.default.auth);
+    if (!this.isConfigured() || !authFn) {
       throw new Error('Firebase Admin SDK is not initialized. Check server credentials.');
     }
-    return firebaseAdmin.auth().verifyIdToken(idToken);
+    return authFn().verifyIdToken(idToken);
   }
 }
