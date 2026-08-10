@@ -16,17 +16,7 @@ It features a **Vite + React 19** frontend, **NestJS 11** microservices-ready ba
 
 ---
 
-## 📸 App Highlights & Surfaces
 
-| App Surface | Port | Command | Description |
-|---|---|---|---|
-| 📱 **Customer Super App** | `3000` | `npm run dev` | Mobile-first consumer app (Food, Turfs, Wallet, Celebrations) |
-| ⚡ **NestJS API Core** | `3001` | `npm run dev:backend` | Production REST API, Firebase Admin verification, SSE Streams |
-| 👨‍🍳 **Kitchen KDS** | `3002` | `npm run dev:kds` | Kitchen Display System for kitchen staff order fulfillment |
-| 📊 **Admin Dashboard** | `3003` | `npm run dev:admin` | Executive management console for staff, revenue, & gate passes |
-| 🛵 **Driver Tracker** | `3004` | `npm run dev:driver` | Delivery partner app with real-time GPS location broadcasting |
-
----
 
 ## 🔥 Key Features
 
