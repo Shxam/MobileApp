@@ -1,39 +1,40 @@
-import { Controller, Get, HttpStatus, Res, Inject } from '@nestjs/common';
+import { Controller, Get, HttpStatus, Res } from '@nestjs/common';
 import { Response } from 'express';
 import { RedisService } from '../common/redis/redis.service';
 import { FirebaseAdminService } from '../common/firebase/firebase-admin.service';
-import { Pool } from 'pg';
+import { PrismaService } from '../common/prisma/prisma.service';
 
+type CheckState = 'connected' | 'down';
+
+interface Check {
+  status: CheckState;
+  latencyMs: number | null;
+  error?: string;
+}
+
+/**
+ * Liveness vs readiness:
+ *   /health/live  — is the process running? Never touches a dependency, so a
+ *                   database blip cannot get the pod killed by the kubelet.
+ *   /health/ready — can this replica serve traffic? Really probes Postgres and
+ *                   Redis and returns 503 when either is down, so a broken pod
+ *                   is pulled from the load balancer.
+ */
 @Controller('health')
 export class HealthController {
-  private pgPool: Pool;
-
   constructor(
-    @Inject(RedisService) private readonly redisService: RedisService,
-    @Inject(FirebaseAdminService) private readonly firebaseAdmin: FirebaseAdminService,
-  ) {
-    const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ipldhaba';
-    this.pgPool = new Pool({ connectionString });
-  }
+    private readonly redis: RedisService,
+    private readonly firebaseAdmin: FirebaseAdminService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   @Get()
   getHealth() {
     return {
-      status: 'UP',
-      service: 'IPL Dhaba Enterprise API Core',
-      version: 'v1.2.0',
+      status: 'up',
+      service: 'IPL Dhaba API',
       uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
-      checks: {
-        database: { status: 'HEALTHY', dialect: 'PostgreSQL 16' },
-        cache: { status: 'HEALTHY', provider: 'Redis 7', pingMs: 2 },
-        eventQueue: { status: 'HEALTHY', provider: 'BullMQ / Redis' },
-        firebase: this.firebaseAdmin.isConfigured() ? 'configured' : 'not_configured',
-      },
-      metrics: {
-        memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-        activeConnections: 1,
-      },
     };
   }
 
@@ -41,45 +42,45 @@ export class HealthController {
   getLive() {
     return {
       status: 'up',
-      uptime: Math.floor(process.uptime()),
+      uptimeSeconds: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
     };
   }
 
   @Get('ready')
-  async getReady(@Res() res: any) {
-    let dbStatus = 'down';
-    let redisStatus = 'down';
+  async getReady(@Res() res: Response) {
+    const [database, cache] = await Promise.all([this.checkDatabase(), this.checkRedis()]);
 
-    // 1. DB Connection Check
-    try {
-      const client = await this.pgPool.connect();
-      await client.query('SELECT 1');
-      client.release();
-      dbStatus = 'connected';
-    } catch {
-      dbStatus = 'simulated_ready';
-    }
+    const isReady = database.status === 'connected' && cache.status === 'connected';
 
-    // 2. Redis Connection Check
-    try {
-      const ping = await this.redisService.ping();
-      if (ping) redisStatus = 'connected';
-    } catch {
-      redisStatus = 'simulated_ready';
-    }
-
-    const firebaseStatus = this.firebaseAdmin.isConfigured() ? 'configured' : 'not_configured';
-    const isHealthy = dbStatus !== 'down' && redisStatus !== 'down';
-
-    return res.status(isHealthy ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE).json({
-      status: isHealthy ? 'ready' : 'degraded',
+    return res.status(isReady ? HttpStatus.OK : HttpStatus.SERVICE_UNAVAILABLE).json({
+      status: isReady ? 'ready' : 'not_ready',
       checks: {
-        database: dbStatus,
-        redis: redisStatus,
-        firebase: firebaseStatus,
+        database,
+        cache,
+        firebase: this.firebaseAdmin.isConfigured() ? 'configured' : 'not_configured',
       },
       timestamp: new Date().toISOString(),
     });
+  }
+
+  private async checkDatabase(): Promise<Check> {
+    const startedAt = Date.now();
+    try {
+      await this.prisma.$queryRaw`SELECT 1`;
+      return { status: 'connected', latencyMs: Date.now() - startedAt };
+    } catch (error) {
+      return { status: 'down', latencyMs: null, error: (error as Error).message };
+    }
+  }
+
+  private async checkRedis(): Promise<Check> {
+    const startedAt = Date.now();
+    try {
+      await this.redis.ping();
+      return { status: 'connected', latencyMs: Date.now() - startedAt };
+    } catch (error) {
+      return { status: 'down', latencyMs: null, error: (error as Error).message };
+    }
   }
 }

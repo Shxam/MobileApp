@@ -1,7 +1,9 @@
 import { Injectable, UnauthorizedException, Inject } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+import { env } from '../../../common/config/env';
 import { RedisService } from '../../../common/redis/redis.service';
+import { blocklistKey } from '../token-keys';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -9,7 +11,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'super-secret-jwt-key-ipl-dhaba-2026',
+      secretOrKey: env.jwtSecret,
       passReqToCallback: true,
     });
   }
@@ -17,7 +19,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(req: any, payload: any) {
     const rawToken = ExtractJwt.fromAuthHeaderAsBearerToken()(req);
     if (rawToken) {
-      const isBlocked = await this.redisService.get(`blocklist:token:${rawToken}`);
+      // Must use the same derivation the issuer used. This previously looked up
+      // the raw token while logout wrote a hashed key, so revocation never took
+      // effect.
+      const isBlocked = await this.redisService.get(blocklistKey(rawToken));
       if (isBlocked) {
         throw new UnauthorizedException('Token has been revoked or logged out');
       }
@@ -28,6 +33,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       phone: payload.phone,
       role: payload.role || 'customer',
       employeeId: payload.employeeId,
+      // Carried on the token so dhaba-scoped guards can enforce tenancy
+      // without an extra database round-trip.
+      dhabaId: payload.dhabaId ?? null,
     };
   }
 }

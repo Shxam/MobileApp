@@ -1,110 +1,141 @@
-import { Injectable, Inject, Logger } from '@nestjs/common';
-import { RedisService } from '../../common/redis/redis.service';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../common/prisma/prisma.service';
+import { env } from '../../common/config/env';
+import type { CreateMenuItemDto } from './dto/create-menu-item.dto';
 
+/** Menu item as returned to clients. Money is paise. */
 export interface MenuItemData {
   id: string;
-  name: string;
-  description: string;
-  price: number;
+  nameEn: string;
+  nameHi: string;
+  descriptionEn: string;
+  descriptionHi: string;
+  pricePaise: number;
   category: string;
   image: string;
   isVeg: boolean;
+  isAvailable: boolean;
   rating: number;
+  prepTimeMinutes: number;
 }
 
-const SEED_MENU_ITEMS: MenuItemData[] = [
-  {
-    id: 'menu_1',
-    name: 'Stadium Special Dum Biryani',
-    description: 'Hyderabadi spiced slow-cooked basmati rice with marinated tender pieces',
-    price: 349,
-    category: 'Biryani',
-    image: 'https://cdn.ipldhaba.com/menu/biryani.jpg',
-    isVeg: false,
-    rating: 4.9,
-  },
-  {
-    id: 'menu_2',
-    name: 'Matchday Paneer Butter Masala',
-    description: 'Fresh cottage cheese cubes in rich creamy tomato gravy',
-    price: 279,
-    category: 'Curries',
-    image: 'https://cdn.ipldhaba.com/menu/paneer.jpg',
-    isVeg: true,
-    rating: 4.8,
-  },
-  {
-    id: 'menu_3',
-    name: 'Floodlit Tandoori Roti Basket',
-    description: 'Assorted whole-wheat rotis cooked in clay oven with butter',
-    price: 99,
-    category: 'Breads',
-    image: 'https://cdn.ipldhaba.com/menu/roti.jpg',
-    isVeg: true,
-    rating: 4.7,
-  },
-  {
-    id: 'menu_4',
-    name: 'Powerplay Mango Lassi Pitcher',
-    description: 'Chilled Alphonso mango yogurt drink',
-    price: 149,
-    category: 'Beverages',
-    image: 'https://cdn.ipldhaba.com/menu/lassi.jpg',
-    isVeg: true,
-    rating: 4.9,
-  },
-];
+type MenuItemRow = {
+  id: string;
+  name: string;
+  nameHi: string | null;
+  description: string;
+  descriptionHi: string | null;
+  pricePaise: number;
+  category: string;
+  image: string;
+  isVeg: boolean;
+  isAvailable: boolean;
+  rating: number;
+  prepTimeMinutes: number;
+};
 
 @Injectable()
 export class MenuService {
-  private readonly logger = new Logger(MenuService.name);
-  private menuStore: MenuItemData[] = [...SEED_MENU_ITEMS];
+  constructor(private readonly prisma: PrismaService) {}
 
-  constructor(@Inject(RedisService) private readonly redisService: RedisService) {}
-
-  async getMenuItems(category?: string, search?: string): Promise<MenuItemData[]> {
-    const cacheKey = `menu:cat:${category || 'all'}:q:${search || 'all'}`;
-
-    // 1. Try Redis Cache
-    const cached = await this.redisService.get(cacheKey);
-    if (cached) {
-      this.logger.log(`⚡ Served Menu from Redis Cache [Key: ${cacheKey}]`);
-      return JSON.parse(cached);
-    }
-
-    // 2. Fetch & Filter Data
-    let results = this.menuStore;
-    if (category) {
-      results = results.filter((item) => item.category.toLowerCase() === category.toLowerCase());
-    }
-    if (search) {
-      results = results.filter((item) =>
-        item.name.toLowerCase().includes(search.toLowerCase()) ||
-        item.description.toLowerCase().includes(search.toLowerCase()),
-      );
-    }
-
-    // 3. Cache in Redis with 3600s (1h) TTL
-    await this.redisService.set(cacheKey, JSON.stringify(results), 3600);
-    return results;
+  async getMenuItems(category?: string, search?: string, includeUnavailable = false): Promise<MenuItemData[]> {
+    const items = await this.prisma.menuItem.findMany({
+      where: {
+        dhabaId: env.defaultDhabaId,
+        ...(includeUnavailable ? {} : { isAvailable: true }),
+        ...(category && category !== 'all'
+          ? { category: { equals: category, mode: 'insensitive' as const } }
+          : {}),
+        ...(search
+          ? {
+              OR: [
+                { name: { contains: search, mode: 'insensitive' as const } },
+                { description: { contains: search, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
+    return items.map((item) => this.serialize(item));
   }
 
-  async addMenuItem(item: Omit<MenuItemData, 'id' | 'rating'>): Promise<MenuItemData> {
-    const newItem: MenuItemData = {
-      ...item,
-      id: `menu_${Date.now()}`,
-      rating: 4.8,
+  async getCategories(): Promise<string[]> {
+    const rows = await this.prisma.menuItem.findMany({
+      where: { dhabaId: env.defaultDhabaId, isAvailable: true },
+      distinct: ['category'],
+      select: { category: true },
+      orderBy: { category: 'asc' },
+    });
+    return rows.map((row) => row.category);
+  }
+
+  async addMenuItem(item: CreateMenuItemDto): Promise<MenuItemData> {
+    const name = item.nameEn.trim();
+    if (!name) throw new BadRequestException('A menu item needs a name.');
+
+    const created = await this.prisma.menuItem.create({
+      data: {
+        name,
+        nameHi: item.nameHi?.trim() || null,
+        description: item.descriptionEn?.trim() || name,
+        descriptionHi: item.descriptionHi?.trim() || null,
+        pricePaise: item.pricePaise,
+        category: item.category?.trim() || 'Menu',
+        image: item.image?.trim() || '',
+        isVeg: item.isVeg ?? true,
+        prepTimeMinutes: item.prepTimeMinutes ?? 15,
+        dhabaId: env.defaultDhabaId,
+      },
+    });
+    return this.serialize(created);
+  }
+
+  async updateMenuItem(id: string, patch: Partial<CreateMenuItemDto>): Promise<MenuItemData> {
+    await this.requireItem(id);
+    const updated = await this.prisma.menuItem.update({
+      where: { id },
+      data: {
+        ...(patch.nameEn !== undefined ? { name: patch.nameEn.trim() } : {}),
+        ...(patch.nameHi !== undefined ? { nameHi: patch.nameHi.trim() || null } : {}),
+        ...(patch.descriptionEn !== undefined ? { description: patch.descriptionEn.trim() } : {}),
+        ...(patch.descriptionHi !== undefined ? { descriptionHi: patch.descriptionHi.trim() || null } : {}),
+        ...(patch.pricePaise !== undefined ? { pricePaise: patch.pricePaise } : {}),
+        ...(patch.category !== undefined ? { category: patch.category.trim() } : {}),
+        ...(patch.image !== undefined ? { image: patch.image.trim() } : {}),
+        ...(patch.isVeg !== undefined ? { isVeg: patch.isVeg } : {}),
+        ...(patch.prepTimeMinutes !== undefined ? { prepTimeMinutes: patch.prepTimeMinutes } : {}),
+      },
+    });
+    return this.serialize(updated);
+  }
+
+  async setAvailability(id: string, isAvailable: boolean): Promise<MenuItemData> {
+    await this.requireItem(id);
+    const updated = await this.prisma.menuItem.update({ where: { id }, data: { isAvailable } });
+    return this.serialize(updated);
+  }
+
+  private async requireItem(id: string) {
+    const item = await this.prisma.menuItem.findUnique({ where: { id } });
+    if (!item) throw new NotFoundException('Menu item not found.');
+    return item;
+  }
+
+  private serialize(item: MenuItemRow): MenuItemData {
+    return {
+      id: item.id,
+      nameEn: item.name,
+      nameHi: item.nameHi ?? item.name,
+      descriptionEn: item.description,
+      descriptionHi: item.descriptionHi ?? item.description,
+      pricePaise: item.pricePaise,
+      category: item.category,
+      image: item.image,
+      isVeg: item.isVeg,
+      isAvailable: item.isAvailable,
+      rating: item.rating,
+      prepTimeMinutes: item.prepTimeMinutes,
     };
-    this.menuStore.push(newItem);
-
-    // Cache Invalidation
-    await this.invalidateCache();
-    return newItem;
-  }
-
-  private async invalidateCache() {
-    this.logger.log('🧹 Invalidating Redis Menu Caches');
-    // Clear known keys
-    await this.redisService.del('menu:cat:all:q:all');
   }
 }

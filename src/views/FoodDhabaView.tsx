@@ -128,24 +128,29 @@ export const FoodDhabaView: React.FC<FoodDhabaViewProps> = ({ onNavigateHub }) =
 
   const handlePaymentCompleted = async (paymentMethod: string) => {
     setIsOrdering(true);
-    const newOrder = await addFoodOrder({
-      items: cart,
-      totalAmount: bill.grandTotal,
-      deliveryType,
-      deliveryTarget,
-      cookingInstructions,
-      estimatedDeliveryMinutes: 15,
-      paymentMethod: 'upi',
-    });
+    try {
+      const newOrder = await addFoodOrder({
+        items: cart,
+        totalAmount: bill.grandTotal,
+        deliveryType,
+        deliveryTarget,
+        cookingInstructions,
+        estimatedDeliveryMinutes: 15,
+        paymentMethod: 'upi',
+      });
 
-    setIsCartOpen(false);
-    addNotification(
-      '🍳 Order Placed!',
-      `Order #${newOrder.id.substring(4, 8)} paid via ${paymentMethod}. Sent to IPL Kitchen!`,
-      'food'
-    );
-    setIsOrdering(false);
-    onNavigateHub();
+      setIsCartOpen(false);
+      addNotification(
+        '🍳 Order Placed!',
+        `Order #${newOrder.id.slice(-6)} paid via ${paymentMethod}. Sent to IPL Kitchen!`,
+        'food'
+      );
+      onNavigateHub();
+    } catch (err: any) {
+      addNotification('⚠️ Order Failed', err?.message || 'Failed to place order. Please try again.', 'food');
+    } finally {
+      setIsOrdering(false);
+    }
   };
 
   const searchHistoryPills = [

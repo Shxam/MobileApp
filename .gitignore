@@ -7,3 +7,8 @@ coverage/
 .env*
 !.env.example
 firebase-service-account.json
+
+# Local MCP config may carry API keys — the tracked .mcp.json uses ${ENV_VAR}
+# expansion instead. Never commit a resolved copy.
+mcp.json
+.mcp.local.json

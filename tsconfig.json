@@ -6,11 +6,7 @@
     "useDefineForClassFields": false,
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["vite/client", "node", "jest"],
     "skipLibCheck": true,
     "esModuleInterop": true,
@@ -18,12 +14,13 @@
     "moduleDetection": "force",
     "allowJs": true,
     "jsx": "react-jsx",
+    "strict": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/*": ["./*"]
     },
     "noEmit": true
   },
-  "exclude": ["apps/mobile", "node_modules", "dist"]
+  "exclude": ["node_modules", "**/dist", "apps/mobile", "apps/backend", "test"]
 }

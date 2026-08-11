@@ -1,6 +1,9 @@
 // ===================================================
 // IPL Dhaba Super App — Prisma Database Schema
-// PostgreSQL Production Domain Data Models & Relations
+//
+// MONEY: every money column is an INTEGER count of paise (₹1 = 100 paise).
+// Floats are never used — they misround GST and cannot represent Razorpay
+// amounts, which are themselves denominated in paise.
 // ===================================================
 
 datasource db {
@@ -12,12 +15,41 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// ─── Enums ──────────────────────────────────────────
+
+/// Happy path:
+///   awaiting_payment → placed → accepted → preparing → ready_for_pickup
+///   → assigned → picked_up → delivered
+/// `out_for_delivery` is a legacy alias of `picked_up`, retained so the staff
+/// apps keep working through the migration.
 enum OrderStatus {
+  awaiting_payment
   placed
+  accepted
   preparing
+  ready_for_pickup
+  assigned
+  picked_up
   out_for_delivery
   delivered
   cancelled
+  refunded
+  payment_failed
+}
+
+enum PaymentStatus {
+  pending
+  cod_pending
+  paid
+  failed
+  refunded
+  partially_refunded
+}
+
+enum PaymentMethod {
+  razorpay
+  cod
+  wallet
 }
 
 enum BookingStatus {
@@ -40,6 +72,8 @@ enum Role {
   admin
 }
 
+// ─── Users & Auth ───────────────────────────────────
+
 model User {
   id                 String              @id @default(uuid())
   firebaseUid        String?             @unique
@@ -48,6 +82,8 @@ model User {
   favoriteTeam       String?
   role               Role                @default(customer)
   employeeId         String?             @unique
+  /// Legacy shared-PIN column. Superseded by StaffCredential.pinHash; retained
+  /// only so existing rows migrate cleanly. Never write to it.
   pin                String?
   dhabaId            String?             @default("dhaba_singarayakonda")
   createdAt          DateTime            @default(now())
@@ -55,54 +91,287 @@ model User {
 
   orders             Order[]
   bookings           Booking[]
+  celebrationBookings CelebrationBooking[]
   walletTransactions WalletTransaction[]
   fanPoints          FanPoints?
   notifications      Notification[]
   reviews            Review[]
+  wallet             Wallet?
+  walletTopUps       WalletTopUp[]
+  driverProfile      DriverProfile?
+  staffCredential    StaffCredential?
+  voucherRedemptions VoucherRedemption[]
 
+  @@index([role])
+  @@index([dhabaId])
   @@map("users")
 }
+
+/// Per-employee bcrypt PIN with lockout. Replaces the single shared STAFF_PIN.
+model StaffCredential {
+  id                String    @id @default(uuid())
+  userId            String    @unique
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  employeeId        String    @unique
+  /// bcrypt hash — the plaintext PIN is never stored.
+  pinHash           String
+  failedAttempts    Int       @default(0)
+  lockedUntil       DateTime?
+  lastLoginAt       DateTime?
+  mustChangePin     Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([employeeId])
+  @@map("staff_credentials")
+}
+
+// ─── Menu ───────────────────────────────────────────
 
 model MenuItem {
   id          String      @id @default(uuid())
   name        String
+  nameHi      String?
   description String
-  price       Float
+  descriptionHi String?
+  /// Price in paise.
+  pricePaise  Int
   category    String
   image       String
   isVeg       Boolean     @default(true)
   isAvailable Boolean     @default(true)
   rating      Float       @default(4.8)
+  prepTimeMinutes Int     @default(15)
+  dhabaId     String      @default("dhaba_singarayakonda")
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   orderItems  OrderItem[]
 
+  @@index([dhabaId])
+  @@index([category])
+  @@index([isAvailable])
   @@map("menu_items")
 }
 
+// ─── Orders ─────────────────────────────────────────
+
 model Order {
-  id           String      @id @default(uuid())
-  userId       String
-  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  status       OrderStatus @default(placed)
-  totalAmount  Float
-  deliveryType String      @default("turf_bench")
-  paymentMethod String     @default("upi")
-  paymentId    String?
-  deliveryTarget String
+  id                  String        @id @default(uuid())
+  /// Human-readable reference shown to customers and staff, e.g. "IPL-A7K3M2".
+  orderNumber         String        @unique
+  userId              String
+  user                User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  dhabaId             String        @default("dhaba_singarayakonda")
+  status              OrderStatus   @default(awaiting_payment)
+
+  // Money breakdown — all paise. Computed server-side from the menu; never
+  // accepted from the client.
+  subtotalPaise       Int
+  gstAmountPaise      Int           @default(0)
+  deliveryFeePaise    Int           @default(0)
+  discountPaise       Int           @default(0)
+  totalAmountPaise    Int
+
+  paymentStatus       PaymentStatus @default(pending)
+  paymentMethod       PaymentMethod @default(razorpay)
+
+  deliveryType        String        @default("turf_bench")
+  deliveryTarget      String
+  deliveryAddress     String?
   cookingInstructions String?
-  estimatedDeliveryMinutes Int @default(25)
-  driverName String?
-  driverPhone String?
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  estimatedDeliveryMinutes Int      @default(25)
 
-  items        OrderItem[]
-  reviews      Review[]
-  driverLocation DriverLocation?
+  // Dispatch
+  driverId            String?
+  driver              DriverProfile? @relation(fields: [driverId], references: [id])
+  /// bcrypt hash of the delivery OTP — plaintext is shown to the customer only.
+  deliveryOtpHash     String?
+  deliveryOtpAttempts Int           @default(0)
 
+  // Lifecycle stamps
+  acceptedAt          DateTime?
+  readyAt             DateTime?
+  assignedAt          DateTime?
+  pickedUpAt          DateTime?
+  deliveredAt         DateTime?
+  cancelledAt         DateTime?
+  cancellationReason  String?
+
+  /// Client-supplied key that makes order creation idempotent under retries.
+  idempotencyKey      String?       @unique
+  promoCode           String?
+
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+
+  items               OrderItem[]
+  reviews             Review[]
+  payments            Payment[]
+  driverLocation      DriverLocation?
+  voucherRedemptions  VoucherRedemption[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([driverId])
+  @@index([dhabaId, status])
+  @@index([paymentStatus])
   @@map("orders")
+}
+
+model OrderItem {
+  id            String   @id @default(uuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  menuItemId    String
+  menuItem      MenuItem @relation(fields: [menuItemId], references: [id])
+  /// Item name captured at order time, so history survives menu edits.
+  nameSnapshot  String   @default("")
+  quantity      Int
+  /// Unit price in paise, captured at order time.
+  unitPricePaise Int
+
+  @@index([orderId])
+  @@index([menuItemId])
+  @@map("order_items")
+}
+
+// ─── Payments ───────────────────────────────────────
+
+model Payment {
+  id                String        @id @default(uuid())
+  orderId           String
+  order             Order         @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  provider          String        @default("razorpay")
+  providerOrderId   String?
+  /// Unique so a replayed capture cannot create a second payment row.
+  providerPaymentId String?       @unique
+  providerRefundId  String?
+  /// Amount in paise.
+  amountPaise       Int
+  currency          String        @default("INR")
+  status            PaymentStatus @default(pending)
+  method            PaymentMethod @default(razorpay)
+  /// Amount refunded so far, in paise.
+  refundedPaise     Int           @default(0)
+  failureReason     String?
+  verifiedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([providerOrderId])
+  @@index([status])
+  @@map("payments")
+}
+
+/// Webhook idempotency ledger. The unique constraint on providerEventId is what
+/// makes a replayed webhook a no-op.
+model WebhookEvent {
+  id              String   @id @default(uuid())
+  provider        String   @default("razorpay")
+  providerEventId String   @unique
+  eventType       String
+  payload         Json
+  processedAt     DateTime?
+  createdAt       DateTime @default(now())
+
+  @@index([eventType])
+  @@map("webhook_events")
+}
+
+/// A wallet top-up paid for at the gateway.
+///
+/// Kept separate from `Payment` because that table's `orderId` is a required FK —
+/// a top-up buys wallet credit, not an order. The amount is fixed here when the
+/// intent opens, so the capture credits what was quoted, never what the client
+/// later claims.
+model WalletTopUp {
+  id                String        @id @default(uuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String        @default("razorpay")
+  providerOrderId   String        @unique
+  /// Unique so a replayed capture cannot credit the wallet twice.
+  providerPaymentId String?       @unique
+  amountPaise       Int
+  currency          String        @default("INR")
+  status            PaymentStatus @default(pending)
+  failureReason     String?
+  creditedAt        DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@map("wallet_topups")
+}
+
+// ─── Wallet ─────────────────────────────────────────
+
+model Wallet {
+  id            String              @id @default(uuid())
+  userId        String              @unique
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Balance in paise. A CHECK constraint in the migration enforces >= 0 at the
+  /// database level, so no concurrent debit can drive it negative.
+  balancePaise  Int                 @default(0)
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  transactions  WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id                String          @id @default(uuid())
+  userId            String
+  user              User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  walletId          String?
+  wallet            Wallet?         @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  /// Amount in paise; always positive — direction is carried by `type`.
+  amountPaise       Int
+  /// Wallet balance in paise immediately after this entry, for auditability.
+  balanceAfterPaise Int?
+  type              TransactionType
+  category          String          @default("topup")
+  description       String
+  referenceId       String?
+  createdAt         DateTime        @default(now())
+
+  @@index([userId])
+  @@index([walletId])
+  @@index([createdAt])
+  @@map("wallet_transactions")
+}
+
+// ─── Dispatch ───────────────────────────────────────
+
+model DriverProfile {
+  id            String    @id @default(uuid())
+  userId        String    @unique
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleType   String    @default("bike")
+  vehicleNumber String?
+  isOnline      Boolean   @default(false)
+  lastLat       Float?
+  lastLng       Float?
+  lastSeenAt    DateTime?
+  /// Set while the driver holds an order; cleared on delivery. Enforces one
+  /// active delivery per driver.
+  activeOrderId String?
+  rating        Float     @default(5.0)
+  dhabaId       String    @default("dhaba_singarayakonda")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  orders        Order[]
+
+  @@index([isOnline, dhabaId])
+  @@index([dhabaId])
+  @@map("driver_profiles")
 }
 
 model DriverLocation {
@@ -117,61 +386,209 @@ model DriverLocation {
   @@map("driver_locations")
 }
 
-model OrderItem {
-  id         String   @id @default(uuid())
-  orderId    String
-  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  menuItemId String
-  menuItem   MenuItem @relation(fields: [menuItemId], references: [id])
-  quantity   Int
-  price      Float
+// ─── Turf & Celebrations ────────────────────────────
 
-  @@map("order_items")
+model Turf {
+  id             String     @id @default(uuid())
+  name           String
+  location       String
+  area           String
+  address        String
+  latitude       Float?
+  longitude      Float?
+  /// Hourly rate in paise.
+  pricePerHourPaise Int
+  pitchType      String     @default("AstroTurf Box")
+  image          String     @default("")
+  gallery        String[]   @default([])
+  amenities      String[]   @default([])
+  description    String     @default("")
+  rating         Float      @default(4.5)
+  reviewsCount   Int        @default(0)
+  isActive       Boolean    @default(true)
+  dhabaId        String     @default("dhaba_singarayakonda")
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  slots          TurfSlot[]
+
+  @@index([dhabaId])
+  @@index([isActive])
+  @@map("turfs")
 }
 
 model TurfSlot {
-  id          String   @id @default(uuid())
-  pitchName   String   @default("Stadium Box Turf A")
-  startTime   DateTime
-  endTime     DateTime
-  price       Float
-  isBooked    Boolean  @default(false)
-  category    String   @default("Floodlit Night")
-  createdAt   DateTime @default(now())
+  id         String    @id @default(uuid())
+  turfId     String?
+  turf       Turf?     @relation(fields: [turfId], references: [id], onDelete: Cascade)
+  pitchName  String    @default("Stadium Box Turf A")
+  startTime  DateTime
+  endTime    DateTime
+  /// Slot price in paise.
+  pricePaise Int
+  isBooked   Boolean   @default(false)
+  isFloodlit Boolean   @default(false)
+  category   String    @default("Floodlit Night")
+  createdAt  DateTime  @default(now())
 
-  bookings    Booking[]
+  bookings   Booking[]
 
+  @@index([turfId])
+  @@index([startTime])
+  @@index([isBooked])
   @@map("turf_slots")
 }
 
 model Booking {
-  id           String        @id @default(uuid())
-  userId       String
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  slotId       String
-  slot         TurfSlot      @relation(fields: [slotId], references: [id])
-  status       BookingStatus @default(confirmed)
-  totalAmount  Float
-  gatePassToken String       @unique
-  addons       String[]      @default([])
-  createdAt    DateTime      @default(now())
+  id               String        @id @default(uuid())
+  /// Human-readable reference shown at the gate, e.g. "TRF-A7K3M2C1".
+  bookingNumber    String        @unique
+  userId           String
+  user             User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slotId           String
+  slot             TurfSlot      @relation(fields: [slotId], references: [id])
+  status           BookingStatus @default(confirmed)
 
-  reviews      Review[]
+  // Money breakdown — all paise, computed server-side from the slot price.
+  subtotalPaise    Int           @default(0)
+  gstAmountPaise   Int           @default(0)
+  /// Booking total in paise.
+  totalAmountPaise Int
 
+  gatePassToken    String        @unique
+  addons           String[]      @default([])
+  paymentMethod    PaymentMethod @default(wallet)
+  paymentStatus    PaymentStatus @default(pending)
+  cancelledAt      DateTime?
+  createdAt        DateTime      @default(now())
+
+  reviews          Review[]
+
+  @@index([userId])
+  @@index([slotId])
+  @@index([status])
   @@map("bookings")
 }
 
-model WalletTransaction {
-  id          String          @id @default(uuid())
-  userId      String
-  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amount      Float
-  type        TransactionType
-  description String
-  createdAt   DateTime        @default(now())
+model CelebrationPackage {
+  id             String   @id @default(uuid())
+  title          String
+  titleHi        String?
+  subtitle       String   @default("")
+  subtitleHi     String?
+  /// Base price in paise.
+  basePricePaise Int
+  image          String   @default("")
+  inclusions     String[] @default([])
+  inclusionsHi   String[] @default([])
+  recommendedFor String   @default("")
+  rating         Float    @default(4.8)
+  isActive       Boolean  @default(true)
+  dhabaId        String   @default("dhaba_singarayakonda")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
-  @@map("wallet_transactions")
+  bookings       CelebrationBooking[]
+
+  @@index([dhabaId])
+  @@index([isActive])
+  @@map("celebration_packages")
 }
+
+/// A booked party. Previously this existed only in the browser's localStorage,
+/// so the dhaba never learned that a celebration had been sold.
+model CelebrationBooking {
+  id                String             @id @default(uuid())
+  /// Human-readable reference, e.g. "CEL-A7K3M2C1".
+  bookingNumber     String             @unique
+  userId            String
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  packageId         String
+  package           CelebrationPackage @relation(fields: [packageId], references: [id])
+
+  eventDate         DateTime
+  timeSlot          String
+  guestCount        Int
+  turfName          String             @default("")
+
+  // Customisations, priced server-side from the constants in pricing.constants.
+  decorTheme        String             @default("")
+  commentarySetup   Boolean            @default(false)
+  trophyPackage     Boolean            @default(false)
+  specialFoodMenu   Boolean            @default(false)
+  cakeKg            Int                @default(0)
+
+  // Money breakdown — all paise.
+  basePricePaise    Int
+  addonsPaise       Int                @default(0)
+  subtotalPaise     Int
+  gstAmountPaise    Int                @default(0)
+  totalAmountPaise  Int
+
+  status            BookingStatus      @default(confirmed)
+  paymentMethod     PaymentMethod      @default(wallet)
+  paymentStatus     PaymentStatus      @default(pending)
+  cancelledAt       DateTime?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([userId])
+  @@index([packageId])
+  @@index([status])
+  @@index([eventDate])
+  @@map("celebration_bookings")
+}
+
+// ─── Vouchers ───────────────────────────────────────
+
+model Voucher {
+  id                String              @id @default(uuid())
+  code              String              @unique
+  description       String              @default("")
+  /// "percent" or "flat".
+  discountType      String              @default("percent")
+  /// Percentage points when `percent`; paise when `flat`.
+  discountValue     Int
+  /// Cap on the discount in paise; null means uncapped.
+  maxDiscountPaise  Int?
+  /// Order subtotal in paise required to use this voucher.
+  minSubtotalPaise  Int                 @default(0)
+  validFrom         DateTime            @default(now())
+  validUntil        DateTime?
+  /// Total redemptions allowed across all users; null means unlimited.
+  maxRedemptions    Int?
+  /// Redemptions allowed per user.
+  perUserLimit      Int                 @default(1)
+  redemptionCount   Int                 @default(0)
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+
+  redemptions       VoucherRedemption[]
+
+  @@index([isActive])
+  @@map("vouchers")
+}
+
+model VoucherRedemption {
+  id             String   @id @default(uuid())
+  voucherId      String
+  voucher        Voucher  @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orderId        String?
+  order          Order?   @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  /// Discount actually applied, in paise.
+  discountPaise  Int
+  createdAt      DateTime @default(now())
+
+  @@unique([voucherId, orderId])
+  @@index([voucherId, userId])
+  @@index([userId])
+  @@map("voucher_redemptions")
+}
+
+// ─── Engagement ─────────────────────────────────────
 
 model FanPoints {
   id        String   @id @default(uuid())
@@ -193,6 +610,8 @@ model Notification {
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
+  @@index([userId, read])
+  @@index([createdAt])
   @@map("notifications")
 }
 
@@ -208,5 +627,8 @@ model Review {
   comment   String
   createdAt DateTime @default(now())
 
+  @@index([userId])
+  @@index([orderId])
+  @@index([bookingId])
   @@map("reviews")
 }

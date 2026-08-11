@@ -58,7 +58,7 @@ export class ApiClient {
   }
 
   /**
-   * Fetch Dhaba food menu
+   * Fetch food menu items with category filter
    */
   public static async getMenu(category: string = 'all'): Promise<MenuItem[]> {
     try {
@@ -74,11 +74,11 @@ export class ApiClient {
     }
 
     if (category === 'all') return MOCK_MENU;
-    return MOCK_MENU.filter((m) => m.category === category);
+    return MOCK_MENU.filter((i) => i.category.toLowerCase() === category.toLowerCase());
   }
 
   /**
-   * Fetch celebration packages
+   * Fetch party packages
    */
   public static async getCelebrationPackages(): Promise<CelebrationPackage[]> {
     try {
@@ -97,12 +97,34 @@ export class ApiClient {
   }
 
   /**
+   * Fetch live cricket scores from live API endpoint
+   */
+  public static async getLiveCricketScores(): Promise<any[]> {
+    try {
+      const res = await fetch(`${this.BASE_URL}/cricket/live-scores`, {
+        headers: this.getHeaders(),
+      });
+      if (res.ok) {
+        const payload = await res.json();
+        return payload.data || payload;
+      }
+    } catch {
+      // Offline / Fallback handled by component
+    }
+    return [];
+  }
+
+  /**
    * Submit new food order
    */
   public static async createFoodOrder(orderData: Omit<FoodOrder, 'id' | 'createdAt' | 'status'>): Promise<FoodOrder> {
     const response = await fetch(`${this.BASE_URL}/orders`, { method: 'POST', headers: this.getHeaders(), body: JSON.stringify(orderData) });
-    if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Unable to place the order.');
-    return response.json() as Promise<FoodOrder>;
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => null);
+      throw new Error(errBody?.message || errBody?.error || 'Unable to place the order.');
+    }
+    const resData = await response.json();
+    return (resData.data || resData) as FoodOrder;
   }
 
   public static async getFoodOrders(): Promise<FoodOrder[]> {

@@ -23,12 +23,14 @@ interface ScoreCardItem {
   };
 }
 
+import { ApiClient } from '../services/apiClient';
+
 const MOCK_CRICKET_DATA: ScoreCardItem[] = [
   {
     id: 'm1',
     type: 'score',
     matchTitle: 'RCB VS CSK • T20 MATCHDAY',
-    series: 'IPL 2026 SEASON OPENER • M CHINNASWAMY STADIUM',
+    series: 'INDIAN PREMIER LEAGUE 2026 • M CHINNASWAMY STADIUM',
     team1: { name: 'Bengaluru', code: 'RCB', score: '184/4', overs: '18.2 Overs', flagBg: 'bg-rose-600' },
     team2: { name: 'Chennai', code: 'CSK', score: '178/6', overs: '20.0 Overs', flagBg: 'bg-amber-500' },
     statusText: 'RCB need 7 runs in 10 balls to win',
@@ -60,35 +62,66 @@ const MOCK_CRICKET_DATA: ScoreCardItem[] = [
   },
   {
     id: 'm3',
-    type: 'news',
-    matchTitle: 'SINGARAYAKONDA TURF LEAGUE 2026',
-    series: 'IPL DHABA ARENA SPECIAL BASH',
-    team1: { name: 'Dhaba Strikers', code: 'STR', score: '112/3', overs: '10.0 Overs', flagBg: 'bg-orange-600' },
-    team2: { name: 'Turf Kings', code: 'TKG', score: '108/6', overs: '10.0 Overs', flagBg: 'bg-emerald-600' },
-    statusText: 'Strikers win by 4 runs! Free Dum Biryani served to MOTM.',
-    isLive: false,
-    newsTitle: 'Singarayakonda Box Turf League Grand Final Night!',
-    newsSummary: 'Dhaba Strikers lifted the IPL Dhaba Champions Trophy at Singarayakonda floodlit arena!',
+    type: 'score',
+    matchTitle: 'ENGLAND VS PAKISTAN • 2ND T20I',
+    series: 'ENGLAND TOUR OF PAKISTAN 2026',
+    team1: { name: 'England', code: 'ENG', score: '162/4', overs: '16.5 Overs', flagBg: 'bg-red-600' },
+    team2: { name: 'Pakistan', code: 'PAK', score: '175/7', overs: '20.0 Overs', flagBg: 'bg-emerald-600' },
+    statusText: 'England need 14 runs in 19 balls to win',
+    isLive: true,
+    scorecardDetails: {
+      team1Batter: 'J. Buttler 58* (34) • L. Livingstone 29 (15)',
+      team1Bowler: 'Shaheen Afridi 2/28 (3.5)',
+      target: 'Target: 176',
+      crr: 'CRR: 9.62',
+      rrr: 'RRR: 4.42',
+    },
   },
 ];
 
 export const CricketScoreCarousel: React.FC = () => {
   const shouldReduceMotion = useReducedMotion();
+  const [matchData, setMatchData] = useState<ScoreCardItem[]>(MOCK_CRICKET_DATA);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [selectedScorecard, setSelectedScorecard] = useState<ScoreCardItem | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
+  const fetchLiveScores = async () => {
+    try {
+      const data = await ApiClient.getLiveCricketScores();
+      if (data && Array.isArray(data) && data.length > 0) {
+        // Exclude completed/over matches strictly
+        const liveWorldwide = data.filter((m: any) => m.isLive && !/won|win by|awarded|abandoned|completed/i.test(m.statusText || ''));
+        if (liveWorldwide.length > 0) {
+          setMatchData(liveWorldwide);
+        } else {
+          setMatchData(data);
+        }
+      }
+    } catch {
+      // Keep active live worldwide default matches
+    }
+  };
+
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCurrentIndex((prev) => (prev + 1) % MOCK_CRICKET_DATA.length);
-    }, 6000);
-    return () => clearInterval(timer);
+    fetchLiveScores();
+    const fetchTimer = setInterval(fetchLiveScores, 15000);
+    return () => clearInterval(fetchTimer);
   }, []);
 
-  const item = MOCK_CRICKET_DATA[currentIndex];
+  useEffect(() => {
+    if (matchData.length === 0) return;
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % matchData.length);
+    }, 6000);
+    return () => clearInterval(timer);
+  }, [matchData.length]);
 
-  const handleRefresh = () => {
+  const item = matchData[currentIndex] || MOCK_CRICKET_DATA[0];
+
+  const handleRefresh = async () => {
     setIsRefreshing(true);
+    await fetchLiveScores();
     setTimeout(() => setIsRefreshing(false), 800);
   };
 
@@ -208,7 +241,7 @@ export const CricketScoreCarousel: React.FC = () => {
 
         {/* Carousel Dots */}
         <div className="flex items-center justify-center gap-1.5 pt-1">
-          {MOCK_CRICKET_DATA.map((_, idx) => (
+          {matchData.map((_, idx) => (
             <button
               key={idx}
               onClick={() => setCurrentIndex(idx)}
