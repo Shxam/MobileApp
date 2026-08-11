@@ -1,242 +1,497 @@
-# 🏏 🍲 IPL Dhaba — Enterprise Super App & Operations Suite
+# 🏏 🍲 IPL Dhaba — Super App & Operations Suite
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-blue.svg?logo=typescript)](https://www.typescriptlang.org/)
-[![React](https://img.shields.io/badge/React-19.0-61dafb.svg?logo=react)](https://react.dev/)
-[![NestJS](https://img.shields.io/badge/NestJS-11.1-e0234e.svg?logo=nestjs)](https://nestjs.com/)
-[![Firebase Auth](https://img.shields.io/badge/Firebase_Auth-Phone_OTP-ffca28.svg?logo=firebase)](https://firebase.google.com/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg?logo=react)](https://react.dev/)
+[![NestJS](https://img.shields.io/badge/NestJS-11-e0234e.svg?logo=nestjs)](https://nestjs.com/)
 [![Prisma](https://img.shields.io/badge/Prisma-5.22-2D3748.svg?logo=prisma)](https://www.prisma.io/)
 [![PostgreSQL](https://img.shields.io/badge/Neon_PostgreSQL-16-336791.svg?logo=postgresql)](https://neon.tech/)
 [![Redis](https://img.shields.io/badge/Upstash_Redis-7-dc382d.svg?logo=redis)](https://upstash.com/)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-v4-38bdf8.svg?logo=tailwindcss)](https://tailwindcss.com/)
-[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Razorpay](https://img.shields.io/badge/Razorpay-2.9-0c2451.svg?logo=razorpay)](https://razorpay.com/)
+[![Tests](https://img.shields.io/badge/tests-158_passing-brightgreen.svg?logo=jest)](#testing)
 
-**IPL Dhaba Super App** is an all-in-one platform for dhaba food ordering, IPL box turf cricket slot bookings, event celebrations, and operational merchant tools (Kitchen KDS, Driver Live Tracking, and Admin Portal).
+A cricket-themed super app for a roadside dhaba in Singarayakonda, Andhra Pradesh. It handles **food delivery**, **floodlit box-turf bookings**, **party packages**, **live cricket scores** and a **wallet** — with five separate frontends over one NestJS API.
 
-It features a **Vite + React 19** frontend, **NestJS 11** microservices-ready backend, **Firebase Phone Authentication**, **Neon Cloud PostgreSQL**, and **Upstash Redis** caching & BullMQ event streaming.
+Five apps, one backend, one database:
 
----
-
-
-
-## 🔥 Key Features
-
-### 🍲 1. Dhaba Food Ordering
-- Multi-category food menu (Biryani, Tandoori, Curries, Beverages, Match Combos)
-- Custom cooking instructions, delivery target selection (Pitch-side Bench, Turf Cage, Table)
-- Real-time Server-Sent Events (SSE) status stream (`Placed` → `Preparing` → `Out for Delivery` → `Delivered`)
-- Live Driver GPS tracking with map visualization and heading updates
-
-### 🏏 2. IPL Box Turf Booking
-- Floodlit evening & prime cricket slot booking system
-- Atomic Redis concurrency lock preventing double bookings
-- QR Code **GatePass Token** generation (`GATEPASS-TB...`) for instant gate validation
-- Add-on services: GoPro match recording, ball boys, umpire assignment
-
-### 🎉 3. Celebrations & Birthday Party Packages
-- Pitch-side IPL match screening packages
-- Birthday bash setups, custom catering options, and advance reservation manager
-
-### 🔐 4. Firebase Phone Authentication
-- **Client-Side**: Firebase Web SDK with invisible reCAPTCHA and SMS OTP delivery
-- **Backend Verification**: Firebase Admin SDK cryptographically verifies ID tokens via `POST /api/v1/auth/firebase`
-- **Identity Linking**: Automatic linking of `firebaseUid` with existing phone accounts in PostgreSQL
-- **Role Security**: Customers default to `customer` role; operational staff log in securely via 4-digit PIN
-
-### 💰 5. Fan Rewards & Digital Wallet
-- Instant UPI wallet top-ups (Razorpay integration ready)
-- 10% Fan Cashback bonus on top-ups and 5% on orders
-- Internal ledger transaction history with reference correlation IDs
+| App | Who uses it | Port | Source |
+|---|---|---|---|
+| **Customer super app** | Diners and players | 3000 | `src/` |
+| **NestJS API** | — | 3001 | `apps/backend/` |
+| **Kitchen KDS** | Kitchen staff | 3002 | `apps/kitchen-kds/` |
+| **Admin portal** | Owner / manager | 3003 | `apps/admin/` |
+| **Driver tracker** | Delivery partners | 3004 | `apps/driver/` |
 
 ---
 
-## 🏛 System Architecture
+## Design principles
 
-```text
-                                  ┌─────────────────────────────────┐
-                                  │      Firebase Auth Server       │
-                                  └────────────────┬────────────────┘
-                                                   │ Verify SMS OTP
-┌───────────────────────────────┐                  │ & Issue ID Token
-│   Vite + React 19 Frontend    ├──────────────────┘
-│  (Consumer, KDS, Admin, Driver)│
-└──────────────┬────────────────┘
-               │ HTTP REST / SSE Stream
-               ▼
-┌───────────────────────────────┐
-│     NestJS 11 API Backend     │◄─── Firebase Admin SDK (Verify ID Token)
-│   (Passport JWT, Guard Scope) │
-└──────┬──────────────┬─────────┘
-       │              │
-       ▼              ▼
-┌──────────────┐ ┌──────────────┐
-│  Neon Cloud  │ │Upstash Redis │
-│ PostgreSQL16 │ │ Cache & Queue│
-│ (Prisma ORM) │ │  (BullMQ)    │
-└──────────────┘ └──────────────┘
+These are the decisions the codebase actually enforces. They're listed first because most of the code only makes sense in light of them.
+
+### Money is integer paise, everywhere
+
+Every monetary column is `INTEGER` paise — `totalAmountPaise`, `pricePaise`, `balancePaise`. Floating-point money misrounds GST and cannot represent a Razorpay amount natively. Only the render layer divides, via `formatPaise()` in `packages/types/index.ts`.
+
+### The server owns every price
+
+The client sends `{ menuItemId, quantity }[]` — never a price, never a name. `PricingService` loads prices from the database and computes the breakdown itself. An unknown item id is a `400`, not a silently created menu row.
+
+Checkout is a two-step quote:
+
+1. `POST /orders/quote` → a short-TTL quote in Redis (10 min)
+2. `POST /orders` with the quote id → the server **re-verifies** the total before charging
+
+So the price cannot move between quote and payment, and the browser never gets a vote.
+
+### Ownership is enforced inside the `where` clause
+
+Never fetched-then-compared. A request for someone else's order or address returns **404, not 403** — a 403 would confirm the row exists.
+
+```ts
+// what the services do
+prisma.order.findFirst({ where: { id, userId } })
 ```
 
+### Concurrency is settled by the database, not by application logic
+
+Two drivers tapping *Accept* on the same order is resolved by a conditional update, not a read-then-write:
+
+```ts
+const { count } = await tx.order.updateMany({
+  where: { id: orderId, driverId: null, status: 'ready_for_pickup' },
+  data: { driverId, status: 'assigned', assignedAt: new Date() },
+});
+if (count === 0) throw new ConflictException('Order already assigned');
+```
+
+Turf slots use a Redis `SET NX PX` lock. Wallet balance carries a database-level non-negative constraint, so an over-debit fails in Postgres rather than relying on a prior read.
+
+### Delivery is closed by OTP
+
+An OTP is generated at pickup, shown to the customer, and stored **bcrypt-hashed** in `deliveryOtpHash`. The driver must enter it to close the order. Without this, any authenticated delivery partner could mark any order delivered.
+
 ---
 
-## 🛠 Tech Stack
+## Pricing rules
 
-- **Frontend**: Vite 6, React 19, TypeScript 5.8, Tailwind CSS v4, Framer Motion 12, Lucide Icons
-- **Backend Framework**: NestJS 11, Express, RxJS, class-validator, class-transformer
-- **Database & ORM**: PostgreSQL 16 (Neon Cloud), Prisma ORM 5.22
-- **Caching & Realtime**: Upstash Redis Cloud 7, BullMQ 6, Socket.IO 4
-- **Authentication**: Firebase Auth (Phone Provider), Firebase Admin SDK 12, Passport JWT (15m Access / 7d Refresh)
-- **Containerization & Cloud**: Docker, Docker Compose, Kubernetes manifests, Helm Charts
+Defined once in `apps/backend/src/modules/pricing/pricing.constants.ts`:
+
+| Rule | Value |
+|---|---|
+| Food GST | 5% |
+| Turf GST | 18% |
+| Pitch-side bench delivery | ₹30 |
+| Home delivery | ₹45 |
+| Floodlight surcharge | ₹100 |
+| Turf add-on (GoPro, umpire, ball boys) | ₹150 each |
+| Celebration base | 15 guests included, ₹200 per extra guest |
+| Quote TTL | 10 minutes |
+| Cart limits | 50 lines, max qty 20 per line |
+
+Seeded vouchers: `IPL10` (10% off, cap ₹100, min ₹300) · `SIXER` (₹60 off over ₹500) · `HATTRICK` (₹150 off over ₹1200). Validity and per-user caps live in the `Voucher` table — not in the browser.
 
 ---
 
-## 🚀 Quickstart — Run Locally
+## Architecture
 
-### 1. Prerequisites
-- Node.js (v20+ LTS recommended)
-- npm (v10+)
-- PostgreSQL or Neon Database URL
-- Upstash Redis URL (optional, in-memory fallback enabled)
+```text
+┌──────────────────────────────────────────────────────────────┐
+│  Customer (3000)   KDS (3002)   Admin (3003)  Driver (3004)  │
+│              Vite 6 · React 19 · Tailwind 4                  │
+└───────────┬──────────────────────────────────┬───────────────┘
+            │ REST /api/v1                    │ socket.io
+            │ Bearer JWT                      │ (JWT in handshake)
+            ▼                                 ▼
+┌──────────────────────────────────────────────────────────────┐
+│                    NestJS 11 API  (3001)                     │
+│  helmet · throttler · CORS allowlist · ValidationPipe        │
+│  JwtAuthGuard · RolesGuard · ownership scoping               │
+└─────┬──────────────┬──────────────┬──────────────┬───────────┘
+      ▼              ▼              ▼              ▼
+┌───────────┐  ┌───────────┐  ┌──────────┐  ┌──────────────┐
+│   Neon    │  │  Upstash  │  │ Razorpay │  │   Firebase   │
+│ Postgres  │  │   Redis   │  │ Checkout │  │  Admin SDK   │
+│ (Prisma)  │  │ locks +   │  │+ webhook │  │ (phone OTP   │
+│           │  │ quotes +  │  │          │  │  ID tokens)  │
+│           │  │ socket    │  │          │  │              │
+│           │  │ adapter   │  │          │  │              │
+└───────────┘  └───────────┘  └──────────┘  └──────────────┘
+```
 
-### 2. Clone & Install
+Realtime is **socket.io only**. The old SSE tracking endpoint was removed: it sat behind `JwtAuthGuard`, and a browser `EventSource` cannot send an `Authorization` header, so tracking could never have worked. Fan-out across replicas uses `@socket.io/redis-adapter`.
+
+Rooms are scoped — `order:{id}`, `user:{id}`, `kitchen:{dhabaId}`, `drivers:{dhabaId}` — so one customer never receives another's order events.
+
+---
+
+## Tech stack
+
+**Frontend** — Vite 6, React 19, TypeScript 5.8 (`strict`), Tailwind CSS 4, Framer Motion, Lucide, Leaflet 1.9, socket.io-client 4.8, Firebase Web SDK 12, `qrcode`
+
+**Backend** — NestJS 11, Prisma 5.22, PostgreSQL 16 (Neon), ioredis 6 (Upstash), socket.io 4.8 + redis-adapter, passport-jwt, Firebase Admin 14, Razorpay 2.9, class-validator, helmet, `@nestjs/throttler`, `@nestjs/schedule`, bcrypt 6
+
+**Testing** — Jest 30, ts-jest, supertest, two projects (node + jsdom)
+
+**Infra** — Docker, Docker Compose, Kubernetes manifests, Helm charts, GitHub Actions
+
+---
+
+## Quickstart
+
+### Prerequisites
+
+- **Node.js 20+** and npm 10+
+- A **PostgreSQL** database (Neon works out of the box)
+- **Redis** (Upstash or local) — required in production; a loud in-memory fallback covers local dev
+- A **Firebase** project with the Phone provider enabled
+- **Razorpay** test keys
+
+### Install
+
 ```bash
 git clone https://github.com/Shxam/MobileApp.git
 cd MobileApp
 npm install
 ```
 
-### 3. Setup Environment Variables
-Copy `.env.example` to `.env`:
+### Configure
+
 ```bash
 cp .env.example .env
 ```
 
-Ensure your `.env` contains your Neon PostgreSQL connection string and Firebase config:
-```env
-# Node Environment
-NODE_ENV=development
-PORT=3001
+Then fill in `.env`. Boot **fails fast** on a missing or weak secret — there are no silent fallbacks, by design. Validation lives in `apps/backend/src/common/config/env.ts`.
 
-# Neon Database
-DATABASE_URL="postgresql://user:pass@ep-solitary-thunder.us-east-2.aws.neon.tech/neondb?sslmode=require"
+### Migrate and seed
 
-# Firebase Admin SDK (Backend Private)
-GOOGLE_APPLICATION_CREDENTIALS=firebase-service-account.json
-FIREBASE_PROJECT_ID=ipldhaba
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-fbsvc@ipldhaba.iam.gserviceaccount.com
-
-# Firebase Web Client SDK (Public Frontend)
-VITE_FIREBASE_API_KEY=AIzaSyDemoApiKeyForIPLDhabaApp2026
-VITE_FIREBASE_AUTH_DOMAIN=ipldhaba.firebaseapp.com
-VITE_FIREBASE_PROJECT_ID=ipldhaba
-VITE_FIREBASE_STORAGE_BUCKET=ipldhaba.firebasestorage.app
-VITE_FIREBASE_MESSAGING_SENDER_ID=115362447382
-VITE_FIREBASE_APP_ID=1:115362447382:web:demoappkey123
-```
-
-### 4. Database Setup & Sync
-```bash
-npx prisma db push
-```
-
-### 5. Launch Development Services
-Run all applications in parallel or individually:
+Use `migrate deploy`, not `db push` — the migration history is the source of truth:
 
 ```bash
-# Start Customer Mobile App (Port 3000)
-npm run dev
+npx prisma migrate deploy
+npx prisma generate
+```
 
-# Start NestJS API Backend (Port 3001)
+```bash
+SEED_STAFF_PIN=<choose-a-pin> npx prisma db seed
+```
+
+The seed writes the real menu (76 items), the Singarayakonda turf with a week of bookable slots across two pitches, the bilingual celebration package, and the three vouchers. Staff accounts are created **only** if `SEED_STAFF_PIN` is set; the PIN is bcrypt-hashed per employee.
+
+Seeded staff employee IDs: `KDS-001` (kitchen) · `DRV-001` (driver) · `ADM-001` (admin). All are flagged `mustChangePin`.
+
+### Run
+
+Each in its own terminal:
+
+```bash
 npm run dev:backend
+```
 
-# Start Kitchen KDS App (Port 3002)
+```bash
+npm run dev
+```
+
+```bash
 npm run dev:kds
+```
 
-# Start Admin Dashboard (Port 3003)
+```bash
 npm run dev:admin
+```
 
-# Start Driver Tracker App (Port 3004)
+```bash
 npm run dev:driver
 ```
 
+In development the frontends call `/api` through the Vite proxy, so the browser stays same-origin and CORS is not involved.
+
 ---
 
-## 🧪 Testing & Verification
+## Environment variables
+
+### Backend
+
+| Variable | Required | Notes |
+|---|---|---|
+| `NODE_ENV` | yes | `development` \| `test` \| `production` only |
+| `PORT` / `HOST` | no | defaults `3001` / `0.0.0.0` |
+| `DATABASE_URL` | yes | Postgres connection string |
+| `CORS_ORIGINS` | **in production** | comma-separated browser origin allowlist; boot aborts if empty |
+| `APP_URL` | no | public app origin |
+| `JWT_SECRET` | yes | |
+| `JWT_REFRESH_SECRET` | yes | must differ from `JWT_SECRET` |
+| `JWT_ACCESS_TTL` / `JWT_REFRESH_TTL` | no | default 15m / 7d |
+| `STAFF_TOKEN_TTL` | no | |
+| `GATE_PASS_SECRET` | **in production** | signs turf gate-pass QR tokens |
+| `REDIS_URL` *or* `REDIS_HOST`+`REDIS_PORT`+`REDIS_PASSWORD` | yes in production | |
+| `RAZORPAY_KEY_ID` | **in production** | |
+| `RAZORPAY_KEY_SECRET` | **in production** | |
+| `RAZORPAY_WEBHOOK_SECRET` | **in production** | verifies webhook HMAC |
+| `GOOGLE_APPLICATION_CREDENTIALS` | yes | path to the service-account JSON |
+| `FIREBASE_PROJECT_ID` / `FIREBASE_CLIENT_EMAIL` / `FIREBASE_PRIVATE_KEY` | yes | alternative to the JSON file |
+| `CRICKET_API_KEY` | no | live-score feed; the carousel degrades without it |
+| `DEFAULT_DHABA_ID` | no | defaults `dhaba_singarayakonda` |
+| `SEED_STAFF_PIN` | seed only | omit and no staff accounts are created |
+
+A `COMPROMISED_SECRETS` set rejects any value known to have been committed previously, so a leaked secret cannot be reintroduced.
+
+### Frontend (baked into the bundle at build time)
+
+Only `VITE_`-prefixed variables reach the browser. **Never prefix a secret with `VITE_`.**
+
+| Variable | Notes |
+|---|---|
+| `VITE_API_URL` | API origin for production builds. Empty in dev (the Vite proxy handles `/api`) |
+| `VITE_DHABA_LAT` / `VITE_DHABA_LNG` | map fallback centre |
+| `VITE_FIREBASE_*` | the six web-config values; public by design |
+
+> **Vite env gotcha.** Vite loads `.env` in *every* mode and layers `.env.production` on top during `vite build`. Anything omitted from `.env.production` silently inherits the dev value — which is how a production bundle can end up calling `http://localhost:3001`. Keep `VITE_API_URL` set in both files.
+
+---
+
+## Order lifecycle
+
+```text
+awaiting_payment ─┐                          (Razorpay: until verified)
+                  ├──► placed ──► accepted ──► preparing ──► ready_for_pickup
+COD / wallet ─────┘                                                │
+                                                                   ▼
+              delivered ◄── picked_up ◄── assigned ◄── driver claim (atomic)
+                  ▲             OTP verified
+                  └─ COD settles paymentStatus → paid on delivery
+
+  any state ──► cancelled ──► refunded          failure ──► payment_failed
+```
+
+`out_for_delivery` is retained as a migration alias of `picked_up`.
+
+**Payment statuses:** `pending` · `cod_pending` · `paid` · `failed` · `refunded` · `partially_refunded`
+
+**Roles:** `customer` · `kitchen_staff` · `delivery_partner` · `partner` · `admin`
+
+### Payment methods
+
+| Method | Flow |
+|---|---|
+| **Razorpay** | `POST /payments/intent` → Checkout → **both** the client callback signature *and* the webhook are verified → `placed` |
+| **COD** | `placed` immediately, `paymentStatus: cod_pending`, settled to `paid` on delivery |
+| **Wallet** | atomic conditional debit inside the order transaction; insufficient balance rejects before the order exists |
+
+Webhook HMAC is computed over the **raw request body** (`rawBody: true`), not a re-serialized object — a re-serialized payload can never match Razorpay's signature. Replays are idempotent via a unique `WebhookEvent.providerEventId`; order creation is idempotent via a unique `Order.idempotencyKey`. A scheduled job polls Razorpay for orders stuck in `awaiting_payment` past 15 minutes, covering a webhook that never arrives.
+
+---
+
+## API reference
+
+Base path `/api/v1`. Health endpoints are excluded from the prefix.
+
+### Health
+
+| Method | Path | Auth |
+|---|---|---|
+| `GET` | `/health` · `/health/live` · `/health/ready` | public |
+
+### Auth
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| `POST` | `/auth/firebase` | public | exchange a Firebase ID token for a JWT pair |
+| `POST` | `/auth/staff-login` | public | employee ID + PIN, with lockout |
+| `POST` | `/auth/staff/change-pin` | staff | mandatory on first login |
+| `POST` | `/auth/refresh` | public | rotate the refresh token (role preserved) |
+| `POST` | `/auth/logout` | bearer | Redis blocklist |
+| `GET` `PATCH` | `/auth/me` | bearer | read / update profile |
+
+### Menu
+
+| Method | Path | Auth |
+|---|---|---|
+| `GET` | `/menu` · `/menu/categories` | public |
+| `GET` | `/menu/manage` | admin |
+| `POST` `PATCH` | `/menu` · `/menu/:id` · `/menu/:id/availability` | admin |
+
+### Orders
+
+| Method | Path | Auth |
+|---|---|---|
+| `POST` | `/orders/quote` | customer |
+| `POST` | `/orders` | customer |
+| `GET` | `/orders` · `/orders/:id` | owner / staff |
+| `PATCH` | `/orders/:id/status` | kitchen / admin |
+| `PATCH` | `/orders/:id/cancel` | owner / admin |
+| `PATCH` | `/orders/:id/location` | assigned driver |
+
+### Payments
+
+| Method | Path | Auth |
+|---|---|---|
+| `POST` | `/payments/intent` · `/payments/verify` | customer |
+| `POST` | `/payments/wallet-topup` · `/payments/wallet-topup/verify` | customer |
+| `POST` | `/payments/webhook` | Razorpay HMAC |
+
+### Dispatch (drivers)
+
+| Method | Path |
+|---|---|
+| `GET` `PATCH` | `/dispatch/status` (online / offline) |
+| `GET` | `/dispatch/available` · `/dispatch/current` |
+| `POST` | `/dispatch/claim` (atomic) |
+| `POST` | `/dispatch/:orderId/pickup` · `/deliver` (OTP) · `/release` |
+
+### Turfs, bookings, celebrations
+
+| Method | Path |
+|---|---|
+| `GET` | `/turfs` · `/turfs/:id` |
+| `GET` | `/bookings/slots` · `/bookings/my` |
+| `POST` | `/bookings` · `/bookings/:id/cancel` · `/bookings/verify-gate-pass` |
+| `GET` | `/celebrations` (bilingual) · `/celebrations/bookings` |
+| `POST` | `/celebrations/quote` · `/celebrations/bookings` · `/celebrations/bookings/:id/cancel` |
+
+### Customer domain
+
+| Method | Path |
+|---|---|
+| `GET` `POST` `PATCH` `DELETE` | `/addresses` · `/addresses/:id` |
+| `POST` | `/reviews` |
+| `GET` | `/reviews/my` · `/reviews/turf/:turfId` |
+| `GET` | `/wallet` · `/wallet/balance` |
+| `GET` | `/vouchers` |
+| `GET` `PATCH` | `/notifications` · `/notifications/:id/read` · `/notifications/read-all` |
+
+### Admin
+
+| Method | Path |
+|---|---|
+| `GET` | `/admin/reports/summary` (real aggregates) · `/admin/orders` · `/admin/turf-slots` · `/admin/staff` |
+| `POST` | `/admin/staff` · `/admin/staff/:employeeId/unlock` |
+
+---
+
+## Testing
 
 ```bash
-# Run TypeScript compilation check
-npm run lint
-
-# Run Jest unit & integration tests
 npm test
 ```
 
-### Automated Test Coverage
-- **Auth Integration**: Firebase Token authentication, JWT token issuance, token refresh rotation, and Redis blocklist logout verification
-- **Core Domain Integration**: Menu caching, atomic turf slot reservation locking, food order lifecycle, and internal wallet ledger deductions
+**158 tests across 7 suites.** Two Jest projects: node (backend integration) and jsdom (React components).
+
+```bash
+npm run lint          # frontend typecheck
+npm run lint:backend  # backend typecheck
+```
+
+### Test isolation
+
+Tests run against a **dedicated Postgres schema** (`ipl_test_e2e`), not `public`. The global setup appends `?schema=ipl_test_e2e` to `DATABASE_URL`, runs `migrate deploy` into it, and **hard-aborts if the resolved schema is `public`** — so pointing the suite at a production URL cannot damage live data. Teardown drops the schema cascade.
+
+This matters: before that guard existed, `npm test` wrote to the production database.
+
+### What's covered
+
+- **Auth** — Firebase token exchange, JWT issuance, refresh rotation preserving role, Redis blocklist logout
+- **Core domain** — menu caching, atomic turf-slot locking, the order lifecycle, wallet ledger debits
+- **Pricing** — the breakdown in paise, tampered prices rejected, quote total equals charged total
+- **Payments** — signature verification, webhook replay is a no-op, concurrent wallet debits never go negative
+- **Dispatch** — two concurrent claims, exactly one winner; a wrong OTP rejects delivery
+- **Customer domain** — celebrations quoted server-side, reviews requiring a completed owned target, the single-default-address invariant across every mutation
 
 ---
 
-## 📡 API Contract & Health Check
-
-| Method | Endpoint | Description | Auth |
-|---|---|---|---|
-| `GET` | `/health` | System health check (DB, Redis, Firebase status) | Public |
-| `POST` | `/api/v1/auth/firebase` | Exchange Firebase ID Token for IPL Dhaba JWT pair | Public |
-| `POST` | `/api/v1/auth/staff-login` | Staff PIN login (`KITCHEN-001`, `DELIVERY-001`, `ADMIN-001`) | Public |
-| `POST` | `/api/v1/auth/refresh` | Rotate JWT Refresh Token | Public |
-| `POST` | `/api/v1/auth/logout` | Revoke tokens & blocklist in Redis | Bearer JWT |
-| `GET` | `/api/v1/menu` | Fetch food menu with category filter | Public / Bearer |
-| `POST` | `/api/v1/orders` | Place new food order with delivery target | Bearer JWT |
-| `GET` | `/api/v1/orders/:id/tracking-stream` | Real-time SSE status & driver GPS location stream | Bearer JWT |
-| `GET` | `/api/v1/bookings/slots` | Fetch available box turf slots | Public / Bearer |
-| `POST` | `/api/v1/bookings` | Book turf slot with atomic lock & generate GatePass QR | Bearer JWT |
-| `POST` | `/api/v1/wallet/topup` | Credit fan wallet with UPI top-up | Bearer JWT |
-
----
-
-## 🐳 Containerization & Kubernetes
+## Deployment
 
 ### Docker Compose
+
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
-### Helm Deployment (Kubernetes)
+### Kubernetes / Helm
+
 ```bash
 helm upgrade --install ipl-dhaba-backend ./deploy/helm/ipl-dhaba-backend \
-  --namespace ipl-dhaba \
-  --create-namespace \
-  -f ./deploy/helm/ipl-dhaba-backend/values.yaml
+  --namespace ipl-dhaba --create-namespace \
+  -f ./deploy/helm/ipl-dhaba-backend/values-prod.yaml
 ```
+
+Secrets are **externalized** — the chart expects an External Secrets / SealedSecrets-managed `Secret` and contains no credential values. The chart `fail`s at template time if `NODE_ENV=production` without `CORS_ORIGINS`, matching the backend's own boot check.
+
+### CI
+
+`.github/workflows/ci-cd.yml` on `ubuntu-latest`: install → `prisma generate` → typecheck both configs → build all frontends → build backend → **full** integration suite. Then a Docker image push and a migrate-and-deploy job. `android-release.yml` covers the Expo app.
+
+### Production build note
+
+`vite build <root>` emits to `<root>/dist`, so the four frontends don't overwrite each other. `build:backend` emits `dist/apps/backend/src/main.js`; run it **after** `npm run build`.
 
 ---
 
-## 📂 Repository Directory Structure
+## Repository layout
 
 ```text
 ├── apps/
-│   ├── admin/                # Merchant & Admin Console (Port 3003)
-│   ├── backend/              # NestJS 11 Core API (Port 3001)
-│   │   ├── src/
-│   │   │   ├── common/       # Prisma, Redis, Firebase Admin modules
-│   │   │   ├── health/       # Health checks (/health)
-│   │   │   └── modules/      # Auth, Menu, Orders, Bookings, Wallet, Admin
-│   ├── driver/               # Delivery Partner GPS Tracker (Port 3004)
-│   ├── kitchen-kds/          # Kitchen Display System (Port 3002)
-│   └── mobile/               # Mobile Fastlane & Native configs
-├── deploy/                   # Kubernetes Manifests & Helm Charts
-├── docs/                     # Firebase Auth & System Guides
-├── prisma/                   # Schema, Migrations & Seeds
-├── src/                      # Customer Super App (Vite + React 19)
-│   ├── components/           # UI Components, Modals, Navigation
-│   ├── context/              # AppContext state engine
-│   ├── services/             # Firebase SDK, API Client, Event Stream
-│   └── views/                # Home, Food, Turfs, Celebrations, Wallet Views
-└── README.md
+│   ├── backend/              # NestJS API (3001)
+│   │   └── src/
+│   │       ├── common/       # prisma, redis, firebase, config/env.ts, event-bus
+│   │       ├── health/       # real liveness + readiness probes
+│   │       └── modules/      # 16 feature modules (+ integration specs)
+│   ├── admin/                # Admin portal (3003)
+│   ├── kitchen-kds/          # Kitchen display (3002)
+│   ├── driver/               # Driver tracker (3004)
+│   └── mobile/               # Expo / React Native (separate toolchain)
+├── src/                      # Customer super app (3000)
+│   ├── components/           # UI, modals, admin widgets
+│   ├── context/              # AppContext
+│   ├── services/             # apiClient, realtimeClient, razorpayCheckout, firebase
+│   └── views/                # Home, Food, Turf, Celebrations, Wallet, MyBookings
+├── packages/
+│   ├── types/                # single source of domain types + formatPaise()
+│   ├── api-client/           # shared client
+│   ├── realtime/             # shared socket contracts
+│   └── shared/               # validation schemas
+├── prisma/
+│   ├── schema.prisma         # 23 models
+│   ├── migrations/           # 8 migrations
+│   ├── seed.ts
+│   └── seed-data/menu.ts     # the real 76-item card
+├── deploy/{k8s,helm}/
+├── docs/firebase-authentication.md
+├── test/                     # jest setup, global setup/teardown, mocks
+└── docker-compose.yml
 ```
+
+Controllers are declared **inside** their `.module.ts` file — a house convention throughout, `auth` being the one exception with a separate `auth.controller.ts`.
 
 ---
 
-## 📄 License & Credits
+## Operational notes
 
-- **Built by**: IPL Dhaba Development Team
-- **License**: MIT License
+Things a new contributor will hit, recorded honestly rather than discovered the hard way.
+
+**`enableImplicitConversion: false`** on the global `ValidationPipe`. Every numeric DTO field needs an explicit `@Type(() => Number)`, or it arrives as a string and fails validation.
+
+**The backend loads only `.env`** (`app.module.ts`). `.env.production` is consumed by **Vite** at frontend build time — Nest never reads it. Production backend config comes from the k8s Secret / Helm values.
+
+**`prisma generate` can fail with `EPERM` on Windows** when the repo sits in a OneDrive-synced folder: a running Node process holds `query_engine-windows.dll.node` memory-mapped, and Windows won't let it be replaced. Close Node processes or move the repo outside OneDrive. The generated client is unaffected once produced, and CI (Linux) never sees this.
+
+**`bullmq` is declared in `package.json` but imported nowhere.** Queueing goes through the internal event bus. It's a removable dependency.
+
+**No `LICENSE` file is present** despite earlier README claims of MIT. Add one before publishing, or state the licence explicitly.
+
+**`apps/mobile/` still contains placeholder data** ([useAppStore.ts](apps/mobile/src/stores/useAppStore.ts)). It's an Expo app on a separate toolchain, excluded from the root `tsconfig` and workspaces, and was out of scope for the backend rebuild.
+
+### Before going live
+
+- [ ] Rotate any credential that has ever been committed — check `mcp.json` / `.mcp.json` history
+- [ ] Rotate `CRICKET_API_KEY`
+- [ ] Set `CORS_ORIGINS` for the real origins
+- [ ] Set `VITE_API_URL` in `.env.production` (or the CI build env)
+- [ ] Point `DATABASE_URL` at production and run `prisma migrate deploy`
+- [ ] Configure the Razorpay webhook endpoint and `RAZORPAY_WEBHOOK_SECRET`
+- [ ] Swap Razorpay test keys for live keys
+- [ ] Force a PIN change for every seeded staff account
+
+---
+
+## License
+
+Not yet specified — add a `LICENSE` file before distribution.
