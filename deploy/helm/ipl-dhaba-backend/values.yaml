@@ -98,17 +98,66 @@ env:
   PORT: "3001"
   REDIS_HOST: "ipldhaba-prod-redis.internal"
   REDIS_PORT: "6379"
+  # Not secret — the browser origin allowlist that replaced `origin: '*'`, plus
+  # the public app URL. Both are required in production; the configmap template
+  # fails the render rather than letting a pod crash-loop on a missing value.
+  CORS_ORIGINS: "https://ipldhaba.com,https://www.ipldhaba.com,https://admin.ipldhaba.com"
+  APP_URL: "https://ipldhaba.com"
 
+# ── Secrets ─────────────────────────────────────────
+# This block used to hold the live values themselves — a Neon connection string
+# with its password, both JWT signing keys, the gate-pass HMAC key and an
+# `rzp_live_` Razorpay key pair — in a tracked file. It now describes only where
+# to fetch them from; nothing here is confidential.
+#
+# Choose exactly one owner of the Secret:
+#   externalSecret.enabled: true  → the chart declares an ExternalSecret and the
+#                                   External Secrets Operator materialises it.
+#   existingSecret: "my-secret"   → you created the Secret out of band; the chart
+#                                   renders nothing and just consumes it.
+# Setting both, or neither, fails at template time rather than deploying a pod
+# with no credentials.
 secrets:
-  databaseUrl: "postgresql://ipldhaba_prod_owner:PROD_SECRET_PASSWORD@ep-prod-primary-789012.ap-southeast-1.aws.neon.tech/ipldhaba_prod?sslmode=require&pgbouncer=true"
-  redisPassword: "PROD_REDIS_STRONG_SECRET_PASSWORD"
-  jwtSecret: "prod-jwt-secret-key-high-entropy-ipl-dhaba-2026"
-  jwtRefreshSecret: "prod-refresh-secret-key-high-entropy-ipl-dhaba-2026"
-  gatePassSecret: "prod-gatepass-secret-high-entropy-2026"
-  razorpayKeyId: "rzp_live_prodKeyId2026"
-  razorpayKeySecret: "prodLiveSecretKey2026"
-  razorpayWebhookSecret: "prodLiveWebhookSecret2026"
-  alertWebhookUrl: "https://hooks.slack.com/services/PROD/CHANNEL/WEBHOOK"
+  existingSecret: ""
+
+  externalSecret:
+    enabled: true
+    storeKind: ClusterSecretStore
+    storeName: ipl-dhaba-store
+    refreshInterval: 1h
+    # env var → where it lives in the backing store. Keys match what
+    # `apps/backend/src/common/config/env.ts` requires; a missing one crash-loops
+    # the pod on boot instead of falling back to a baked-in default. That file
+    # also enforces a 32-character minimum on each signing key and rejects the
+    # values that were previously committed to this repo.
+    mapping:
+      DATABASE_URL:
+        key: ipldhaba/prod/database
+        property: url
+      REDIS_PASSWORD:
+        key: ipldhaba/prod/redis
+        property: password
+      JWT_SECRET:
+        key: ipldhaba/prod/jwt
+        property: accessSecret
+      JWT_REFRESH_SECRET:
+        key: ipldhaba/prod/jwt
+        property: refreshSecret
+      GATE_PASS_SECRET:
+        key: ipldhaba/prod/jwt
+        property: gatePassSecret
+      RAZORPAY_KEY_ID:
+        key: ipldhaba/prod/razorpay
+        property: keyId
+      RAZORPAY_KEY_SECRET:
+        key: ipldhaba/prod/razorpay
+        property: keySecret
+      RAZORPAY_WEBHOOK_SECRET:
+        key: ipldhaba/prod/razorpay
+        property: webhookSecret
+      ALERT_WEBHOOK_URL:
+        key: ipldhaba/prod/alerting
+        property: slackWebhookUrl
 
 migrationJob:
   enabled: true

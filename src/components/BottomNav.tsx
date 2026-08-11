@@ -83,15 +83,11 @@ export const BottomNav: React.FC<BottomNavProps> = ({ activeTab, setActiveTab, o
             transition={{ type: 'spring', stiffness: 360, damping: 26, delay: 0.16 }}
             whileTap={{ scale: 0.95 }}
             className="w-13 h-13 rounded-full bg-gradient-to-tr from-emerald-600 to-green-500 text-white flex items-center justify-center shadow-green-glow active:scale-95 transition-transform border-4 border-white dark:border-slate-900"
-            title="Scan QR / Fast Action"
+            title={language === 'en' ? 'My gate pass' : 'मेरा गेट पास'}
+            aria-label={language === 'en' ? 'My gate pass' : 'मेरा गेट पास'}
           >
             <AnimatePresence>{rippleTab === 'scan' && <motion.span initial={{ scale: 0.8, opacity: 0.6 }} animate={{ scale: 1.65, opacity: 0 }} transition={{ duration: 0.45 }} className="absolute inset-0 rounded-full border-2 border-white" onAnimationComplete={() => setRippleTab(null)} />}</AnimatePresence>
             <QrCode className="w-6 h-6 stroke-[2.2]" />
-            {cartCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-amber-400 text-slate-900 font-black text-[10px] w-5 h-5 rounded-full flex items-center justify-center border-2 border-white animate-bounce">
-                {cartCount}
-              </span>
-            )}
           </motion.button>
         </div>
 

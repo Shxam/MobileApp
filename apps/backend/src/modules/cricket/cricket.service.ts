@@ -2,9 +2,13 @@ import { Injectable, Logger, Inject } from '@nestjs/common';
 import { env } from '../../common/config/env';
 import { RedisService } from '../../common/redis/redis.service';
 
+/**
+ * One carousel card. Mirrors `packages/types` `LiveMatchItem` — the shaping is
+ * done here rather than in each client so CricAPI's raw innings arrays are
+ * turned into display strings exactly once.
+ */
 export interface LiveMatchItem {
   id: string;
-  type: 'score' | 'news';
   matchTitle: string;
   series: string;
   team1: { name: string; code: string; score: string; overs: string; flagBg: string };
@@ -126,7 +130,6 @@ export class CricketService {
 
     return {
       id: m.id ?? `live_${idx}`,
-      type: 'score',
       matchTitle: `${code(t1, name1, 4)} VS ${code(t2, name2, 4)} • ${m.matchType?.toUpperCase() ?? 'LIVE MATCH'}`,
       series: m.name ?? 'Live Cricket',
       team1: {

@@ -12,3 +12,7 @@ firebase-service-account.json
 # expansion instead. Never commit a resolved copy.
 mcp.json
 .mcp.local.json
+
+# Scratch output from the /graphify tool: machine-generated, and its manifests
+# embed absolute paths from whichever machine produced them.
+graphify-out/

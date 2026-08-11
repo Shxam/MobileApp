@@ -53,10 +53,27 @@ jobs:
       - name: 🛠️ Generate Prisma Client
         run: npx prisma generate
 
-      - name: 🔍 Typecheck & Lint
+      - name: 🔍 Typecheck Frontend
         run: npm run lint
 
-      - name: 🧪 Run Integration Tests against Service Containers
+      # The frontend and backend compile under different configs (ESM + JSX vs
+      # CommonJS + decorators). Running only the first left every backend type
+      # error to be discovered in production.
+      - name: 🔍 Typecheck Backend
+        run: npm run lint:backend
+
+      - name: 🏗️ Build Frontend
+        run: npm run build
+
+      # Compiles to ./dist exactly as the Dockerfile does, so a build break is
+      # caught here rather than at image-build time.
+      - name: 🏗️ Build Backend
+        run: npm run build:backend
+
+      # The whole suite. This step used to name a single spec file, so the
+      # authorization, core-domain, dispatch and realtime integration tests
+      # never ran in CI at all.
+      - name: 🧪 Run Full Integration Suite
         env:
           NODE_ENV: test
           DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ipldhaba_test?sslmode=disable
@@ -64,7 +81,8 @@ jobs:
           REDIS_PORT: 6379
           JWT_SECRET: test-jwt-secret-key-2026
           JWT_REFRESH_SECRET: test-refresh-secret-key-2026
-        run: npx jest apps/backend/src/modules/auth/auth.integration.spec.ts --runInBand
+          GATE_PASS_SECRET: test-gate-pass-secret-key-2026
+        run: npm test
 
   # ── 2. Build & Push Docker Image to GHCR ──────────
   build-and-push-docker:
@@ -116,18 +134,45 @@ jobs:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🚀 Trigger Fly.io / Render Deploy Hook
+      - name: ⚙️ Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      # Migrations run BEFORE the new image goes live. The Phase 2 migration adds
+      # columns the new code selects unconditionally, so deploying the image
+      # against an unmigrated database fails every query. Additive, idempotent
+      # migrations make this safe to run while the old revision is still serving.
+      - name: 🗄️ Apply Database Migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -z "$DATABASE_URL" ]; then
+            echo "::error::DATABASE_URL secret is not set — refusing to deploy an image whose migrations have not been applied."
+            exit 1
+          fi
+          npx prisma migrate deploy
+
+      - name: 🚀 Trigger Fly.io / Render Deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
           RENDER_DEPLOY_HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL }}
         run: |
-          echo "Checking deployment target configuration..."
           if [ -n "$FLY_API_TOKEN" ]; then
-            echo "Deploying to Fly.io using FLY_API_TOKEN..."
-            # npx flyctl deploy --remote-only
+            if [ ! -f fly.toml ]; then
+              echo "::error::FLY_API_TOKEN is set but fly.toml is missing. Run 'flyctl launch --no-deploy' and commit it."
+              exit 1
+            fi
+            echo "Deploying to Fly.io..."
+            npx --yes flyctl deploy --remote-only
           elif [ -n "$RENDER_DEPLOY_HOOK_URL" ]; then
-            echo "Triggering Render Deploy Hook..."
-            curl -X POST "$RENDER_DEPLOY_HOOK_URL"
+            echo "Triggering Render deploy hook..."
+            curl --fail --silent --show-error -X POST "$RENDER_DEPLOY_HOOK_URL"
           else
-            echo "⚠️ No deployment credentials set in GitHub Secrets. Skipping automatic deploy step until confirmed."
+            echo "::error::No deployment target configured. Set either FLY_API_TOKEN or RENDER_DEPLOY_HOOK_URL in repository secrets."
+            exit 1
           fi

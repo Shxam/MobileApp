@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Store, Shield, Plus, TrendingUp, CheckCircle, Clock, Utensils, X, Upload } from 'lucide-react';
+import { Store, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { KitchenOrderQueue } from './admin/KitchenOrderQueue';
 import { TurfReservationGrid } from './admin/TurfReservationGrid';
@@ -11,8 +11,17 @@ interface AdminPartnerPortalProps {
   onClose: () => void;
 }
 
+/**
+ * The staff console — kitchen queue, turf board and gate scanner.
+ *
+ * Everything here is server data: the queue is the live order feed, the turf
+ * board is `GET /bookings/slots`, and the gate scanner verifies a real signed
+ * token. The two write operations in it (order status, gate verification) are
+ * staff-role endpoints; the portal is only rendered for staff roles, and the
+ * backend enforces the same rule again on every call.
+ */
 export const AdminPartnerPortal: React.FC<AdminPartnerPortalProps> = ({ isOpen, onClose }) => {
-  const { foodOrders, updateOrderStatus, turfBookings, mockTurfSlots } = useApp();
+  const { foodOrders, updateOrderStatus } = useApp();
   const [activeTab, setActiveTab] = useState<'kitchen' | 'turf' | 'validator'>('kitchen');
 
   if (!isOpen) return null;
@@ -87,9 +96,7 @@ export const AdminPartnerPortal: React.FC<AdminPartnerPortalProps> = ({ isOpen, 
               <KitchenOrderQueue orders={foodOrders} onUpdateStatus={updateOrderStatus} />
             )}
 
-            {activeTab === 'turf' && (
-              <TurfReservationGrid slots={mockTurfSlots} onToggleHold={() => {}} />
-            )}
+            {activeTab === 'turf' && <TurfReservationGrid />}
 
             {activeTab === 'validator' && <GatePassValidator />}
           </div>

@@ -29,3 +29,5 @@ ingress:
 
 env:
   NODE_ENV: "production"
+  CORS_ORIGINS: "https://ipldhaba.com,https://www.ipldhaba.com,https://admin.ipldhaba.com"
+  APP_URL: "https://ipldhaba.com"

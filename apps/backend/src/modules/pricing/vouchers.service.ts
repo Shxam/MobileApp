@@ -25,6 +25,71 @@ export class VouchersService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * The offers screen lists only what can actually be redeemed, so it never
+   * suggests a code the checkout will reject. The signed-in user's own history
+   * is folded in — a per-user limit of one is invisible to someone who has
+   * already spent it if the list is judged purely on global counts.
+   */
+  async listActive(userId: string): Promise<
+    Array<{
+      code: string;
+      description: string;
+      discountType: string;
+      discountValue: number;
+      maxDiscountPaise: number | null;
+      minSubtotalPaise: number;
+      perUserLimit: number;
+      remainingForUser: number;
+    }>
+  > {
+    const now = new Date();
+    const [rows, mine] = await Promise.all([
+      this.prisma.voucher.findMany({
+        where: {
+          isActive: true,
+          validFrom: { lte: now },
+          OR: [{ validUntil: null }, { validUntil: { gte: now } }],
+        },
+        orderBy: { minSubtotalPaise: 'asc' },
+        select: {
+          id: true,
+          code: true,
+          description: true,
+          discountType: true,
+          discountValue: true,
+          maxDiscountPaise: true,
+          minSubtotalPaise: true,
+          perUserLimit: true,
+          redemptionCount: true,
+          maxRedemptions: true,
+        },
+      }),
+      this.prisma.voucherRedemption.groupBy({
+        by: ['voucherId'],
+        where: { userId },
+        _count: { voucherId: true },
+      }),
+    ]);
+
+    const usedByMe = new Map(mine.map((row) => [row.voucherId, row._count.voucherId]));
+    return rows
+      // A globally exhausted code is dead for everyone; showing it is just an
+      // invitation to type it and be told no.
+      .filter((row) => row.maxRedemptions === null || row.redemptionCount < row.maxRedemptions)
+      .map((row) => ({
+        code: row.code,
+        description: row.description,
+        discountType: row.discountType,
+        discountValue: row.discountValue,
+        maxDiscountPaise: row.maxDiscountPaise,
+        minSubtotalPaise: row.minSubtotalPaise,
+        perUserLimit: row.perUserLimit,
+        remainingForUser: Math.max(0, row.perUserLimit - (usedByMe.get(row.id) ?? 0)),
+      }))
+      .filter((row) => row.remainingForUser > 0);
+  }
+
+  /**
    * Checks a code and computes what it is worth for this cart. Never throws for
    * an invalid code — an unrecognised promo should show a message, not fail the
    * whole quote.

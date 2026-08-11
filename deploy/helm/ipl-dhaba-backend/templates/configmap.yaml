@@ -10,3 +10,11 @@ data:
   PORT: {{ .Values.env.PORT | quote }}
   REDIS_HOST: {{ .Values.env.REDIS_HOST | quote }}
   REDIS_PORT: {{ .Values.env.REDIS_PORT | quote }}
+  {{- /* Required in production: env.ts aborts boot on an empty CORS_ORIGINS,
+         so leaving it unset crash-looped every pod. Fail at template time with a
+         readable message instead of at container start with a stack trace. */}}
+  {{- if and (eq .Values.env.NODE_ENV "production") (not .Values.env.CORS_ORIGINS) }}
+  {{- fail "env.CORS_ORIGINS is required when NODE_ENV=production (comma-separated browser origin allowlist)." }}
+  {{- end }}
+  CORS_ORIGINS: {{ .Values.env.CORS_ORIGINS | quote }}
+  APP_URL: {{ .Values.env.APP_URL | quote }}

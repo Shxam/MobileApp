@@ -1,123 +1,61 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useState, useEffect } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { AnimatedValue } from './AnimatedValue';
-import { Radio, RefreshCw, Trophy, Zap, X, Activity, ChevronRight, Star } from 'lucide-react';
-
-interface ScoreCardItem {
-  id: string;
-  matchTitle: string;
-  series: string;
-  team1: { name: string; code: string; score: string; overs: string; flagBg: string };
-  team2: { name: string; code: string; score: string; overs: string; flagBg: string };
-  statusText: string;
-  isLive: boolean;
-  type: 'score' | 'news';
-  newsTitle?: string;
-  newsSummary?: string;
-  scorecardDetails?: {
-    team1Batter: string;
-    team1Bowler: string;
-    target?: string;
-    crr: string;
-    rrr?: string;
-  };
-}
-
+import { Radio, RefreshCw, Trophy, Zap, X, Activity, ChevronRight, Loader2 } from 'lucide-react';
 import { ApiClient } from '../services/apiClient';
-
-const MOCK_CRICKET_DATA: ScoreCardItem[] = [
-  {
-    id: 'm1',
-    type: 'score',
-    matchTitle: 'RCB VS CSK • T20 MATCHDAY',
-    series: 'INDIAN PREMIER LEAGUE 2026 • M CHINNASWAMY STADIUM',
-    team1: { name: 'Bengaluru', code: 'RCB', score: '184/4', overs: '18.2 Overs', flagBg: 'bg-rose-600' },
-    team2: { name: 'Chennai', code: 'CSK', score: '178/6', overs: '20.0 Overs', flagBg: 'bg-amber-500' },
-    statusText: 'RCB need 7 runs in 10 balls to win',
-    isLive: true,
-    scorecardDetails: {
-      team1Batter: 'V. Kohli 78* (44) • R. Patidar 42 (21)',
-      team1Bowler: 'R. Jadeja 2/32 (4.0)',
-      target: 'Target: 179',
-      crr: 'CRR: 10.03',
-      rrr: 'RRR: 4.20',
-    },
-  },
-  {
-    id: 'm2',
-    type: 'score',
-    matchTitle: 'INDIA VS AUSTRALIA • 3RD T20I',
-    series: 'AUSTRALIA TOUR OF INDIA 2026',
-    team1: { name: 'India', code: 'IND', score: '208/5', overs: '20.0 Overs', flagBg: 'bg-blue-600' },
-    team2: { name: 'Australia', code: 'AUS', score: '195/8', overs: '19.4 Overs', flagBg: 'bg-amber-400 text-slate-950' },
-    statusText: 'IND lead series 2-1 • 14 runs needed off 2 balls',
-    isLive: true,
-    scorecardDetails: {
-      team1Batter: 'S. Yadav 64 (28) • H. Pandya 34* (14)',
-      team1Bowler: 'J. Bumrah 3/24 (4.0)',
-      target: 'Target: 209',
-      crr: 'CRR: 10.40',
-      rrr: 'RRR: 42.0',
-    },
-  },
-  {
-    id: 'm3',
-    type: 'score',
-    matchTitle: 'ENGLAND VS PAKISTAN • 2ND T20I',
-    series: 'ENGLAND TOUR OF PAKISTAN 2026',
-    team1: { name: 'England', code: 'ENG', score: '162/4', overs: '16.5 Overs', flagBg: 'bg-red-600' },
-    team2: { name: 'Pakistan', code: 'PAK', score: '175/7', overs: '20.0 Overs', flagBg: 'bg-emerald-600' },
-    statusText: 'England need 14 runs in 19 balls to win',
-    isLive: true,
-    scorecardDetails: {
-      team1Batter: 'J. Buttler 58* (34) • L. Livingstone 29 (15)',
-      team1Bowler: 'Shaheen Afridi 2/28 (3.5)',
-      target: 'Target: 176',
-      crr: 'CRR: 9.62',
-      rrr: 'RRR: 4.42',
-    },
-  },
-];
+import type { LiveMatchItem } from '../types';
 
 export const CricketScoreCarousel: React.FC = () => {
   const shouldReduceMotion = useReducedMotion();
-  const [matchData, setMatchData] = useState<ScoreCardItem[]>(MOCK_CRICKET_DATA);
+  /**
+   * Starts empty. This used to be seeded with three invented matches — Kohli on
+   * 78*, a 2-1 India series lead — which rendered under a LIVE MATCH badge and
+   * stayed on screen whenever the upstream feed was down or out of season. An
+   * empty carousel that says so is the honest state.
+   */
+  const [matchData, setMatchData] = useState<LiveMatchItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [selectedScorecard, setSelectedScorecard] = useState<ScoreCardItem | null>(null);
+  const [selectedScorecard, setSelectedScorecard] = useState<LiveMatchItem | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
 
-  const fetchLiveScores = async () => {
+  const fetchLiveScores = useCallback(async () => {
     try {
       const data = await ApiClient.getLiveCricketScores();
-      if (data && Array.isArray(data) && data.length > 0) {
-        // Exclude completed/over matches strictly
-        const liveWorldwide = data.filter((m: any) => m.isLive && !/won|win by|awarded|abandoned|completed/i.test(m.statusText || ''));
-        if (liveWorldwide.length > 0) {
-          setMatchData(liveWorldwide);
-        } else {
-          setMatchData(data);
-        }
-      }
+      // Live matches lead; a finished one still renders, under a MATCH RESULT
+      // badge, so the card is never captioned as something it is not.
+      const live = data.filter(
+        (m) => m.isLive && !/won|win by|awarded|abandoned|completed/i.test(m.statusText || ''),
+      );
+      setMatchData(live.length > 0 ? live : data);
     } catch {
-      // Keep active live worldwide default matches
+      // Leave the last good scores up; the refresh button retries on demand.
+    } finally {
+      setHasLoaded(true);
     }
-  };
+  }, []);
 
   useEffect(() => {
     fetchLiveScores();
     const fetchTimer = setInterval(fetchLiveScores, 15000);
     return () => clearInterval(fetchTimer);
-  }, []);
+  }, [fetchLiveScores]);
 
   useEffect(() => {
     if (matchData.length === 0) return;
+    // A refresh that returns fewer matches must not leave the rotation index
+    // past the end of the new array.
+    setCurrentIndex((prev) => Math.min(prev, matchData.length - 1));
     const timer = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % matchData.length);
     }, 6000);
     return () => clearInterval(timer);
   }, [matchData.length]);
 
-  const item = matchData[currentIndex] || MOCK_CRICKET_DATA[0];
+  // Clamp on a shrink: a refresh that returns fewer matches must not leave the
+  // rotation index pointing past the end of the new array.
+  const safeIndex = Math.min(currentIndex, Math.max(0, matchData.length - 1));
+  const item = matchData[safeIndex];
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
@@ -135,14 +73,67 @@ export const CricketScoreCarousel: React.FC = () => {
             Live Match Scores & Ticker
           </h3>
         </div>
+        {/*
+          Reflects the real fetch state. It used to read "Auto-Sync" with a
+          pinging dot unconditionally — including while the feed was empty or the
+          upstream was down, which read as a live connection that wasn't there.
+        */}
         <span className="text-[10px] text-slate-500 dark:text-slate-400 font-bold flex items-center gap-1 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full border border-slate-200/60 dark:border-slate-700">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-          Auto-Sync
+          {matchData.length > 0 ? (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+              Auto-Sync
+            </>
+          ) : (
+            <>
+              <span className="w-1.5 h-1.5 rounded-full bg-slate-300 dark:bg-slate-600" />
+              {hasLoaded ? 'No feed' : 'Connecting'}
+            </>
+          )}
         </span>
       </div>
 
       {/* Main Scorecard Feature Container */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs hover:shadow-md transition-all space-y-3 relative overflow-hidden">
+        {!item ? (
+          /*
+           * The two honest states the old mock array hid. Before, three invented
+           * matches sat here permanently, so a down feed or an off-season day
+           * looked exactly like live cricket.
+           */
+          <div className="flex flex-col items-center justify-center gap-2 py-7 text-center">
+            {!hasLoaded ? (
+              <>
+                <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+                <span className="text-[11px] font-bold text-slate-400 dark:text-slate-500">
+                  Loading live scores…
+                </span>
+              </>
+            ) : (
+              <>
+                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 flex items-center justify-center">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <div className="space-y-0.5">
+                  <p className="text-xs font-extrabold text-slate-900 dark:text-white">
+                    No live matches right now
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                    Scores appear here as soon as a match is underway.
+                  </p>
+                </div>
+                <button
+                  onClick={handleRefresh}
+                  className="mt-1 inline-flex items-center gap-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 font-extrabold text-[11px] px-3.5 py-1.5 rounded-full active:scale-95 transition-all"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin text-emerald-500' : ''}`} />
+                  <span>Check again</span>
+                </button>
+              </>
+            )}
+          </div>
+        ) : (
+          <>
         {/* Carousel Slide Animation */}
         <AnimatePresence mode="wait">
           <motion.div
@@ -239,18 +230,23 @@ export const CricketScoreCarousel: React.FC = () => {
           </motion.div>
         </AnimatePresence>
 
-        {/* Carousel Dots */}
-        <div className="flex items-center justify-center gap-1.5 pt-1">
-          {matchData.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => setCurrentIndex(idx)}
-              className={`h-1.5 rounded-full transition-all ${
-                currentIndex === idx ? 'w-6 bg-emerald-500 shadow-green-sm' : 'w-1.5 bg-slate-200 dark:bg-slate-800'
-              }`}
-            />
-          ))}
-        </div>
+        {/* Carousel Dots — only when there is more than one card to move between. */}
+        {matchData.length > 1 && (
+          <div className="flex items-center justify-center gap-1.5 pt-1">
+            {matchData.map((m, idx) => (
+              <button
+                key={m.id}
+                onClick={() => setCurrentIndex(idx)}
+                aria-label={`Show ${m.matchTitle}`}
+                className={`h-1.5 rounded-full transition-all ${
+                  safeIndex === idx ? 'w-6 bg-emerald-500 shadow-green-sm' : 'w-1.5 bg-slate-200 dark:bg-slate-800'
+                }`}
+              />
+            ))}
+          </div>
+        )}
+          </>
+        )}
       </div>
 
       {/* FULL SCORECARD MODAL */}

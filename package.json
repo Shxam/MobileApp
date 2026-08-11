@@ -1,8 +1,20 @@
 {
-  "name": "react-example",
+  "name": "ipl-dhaba-super-app",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "//workspaces": [
+    "Only the two shared libraries are workspaces. `apps/*` deliberately is not:",
+    "apps/mobile is Expo (react 18.2 + react-native), and hoisting it into a tree",
+    "whose web apps run react 19.2 would resolve two Reacts and break the",
+    "customer build. The three browser staff apps (admin, kitchen-kds, driver)",
+    "carry no manifest at all — they are Vite shells run from this root via the",
+    "dev:*/build:* scripts below, sharing this dependency tree by design."
+  ],
+  "workspaces": [
+    "packages/types",
+    "packages/api-client"
+  ],
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "dev:backend": "tsx apps/backend/src/main.ts",
@@ -10,9 +22,17 @@
     "dev:driver": "vite apps/driver --port=3004",
     "dev:admin": "vite apps/admin --port=3003",
     "build": "vite build",
+    "build:kds": "vite build apps/kitchen-kds",
+    "build:driver": "vite build apps/driver",
+    "build:admin": "vite build apps/admin",
+    "build:backend": "prisma generate && tsc -p tsconfig.backend.json",
+    "start:backend": "node dist/apps/backend/src/main.js",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
+    "lint:backend": "tsc -p tsconfig.backend.json --noEmit",
+    "prisma:generate": "prisma generate",
+    "prisma:deploy": "prisma migrate deploy",
     "test": "jest --config jest.config.cjs --runInBand",
     "test:e2e": "jest --config jest.config.cjs --runInBand"
   },
@@ -37,6 +57,7 @@
     "@types/leaflet": "^1.9.22",
     "@types/passport-jwt": "^4.0.1",
     "@types/pg": "^8.20.3",
+    "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-react": "^5.0.4",
     "bcrypt": "^6.0.0",
     "bullmq": "^6.0.6",
@@ -57,6 +78,7 @@
     "passport-jwt": "^4.0.1",
     "pg": "^8.22.0",
     "prisma": "^5.22.0",
+    "qrcode": "^1.5.4",
     "razorpay": "^2.9.8",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
@@ -69,6 +91,9 @@
   },
   "devDependencies": {
     "@nestjs/testing": "^11.1.28",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.3",
     "@types/express": "^4.17.21",
     "@types/jest": "^30.0.0",
     "@types/node": "^22.14.0",
@@ -79,6 +104,7 @@
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "jest": "^30.4.2",
+    "jest-environment-jsdom": "^30.4.1",
     "supertest": "^7.2.2",
     "tailwindcss": "^4.1.14",
     "ts-jest": "^29.4.12",

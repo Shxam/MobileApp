@@ -8,3 +8,9 @@ data:
   PORT: "3001"
   REDIS_HOST: "ipldhaba-prod-redis.internal"
   REDIS_PORT: "6379"
+  # Required in production — `common/config/env.ts` aborts boot when it is empty,
+  # so omitting it crash-looped every pod. Not a secret: it is the browser origin
+  # allowlist that replaced `origin: '*'`, and a wrong value here is a CORS
+  # failure in the customer app rather than a leak.
+  CORS_ORIGINS: "https://ipldhaba.com,https://www.ipldhaba.com,https://admin.ipldhaba.com"
+  APP_URL: "https://ipldhaba.com"

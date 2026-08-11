@@ -1,9 +1,10 @@
-import { Controller, Post, Body, Get, UseGuards, Req, HttpCode, HttpStatus, Inject } from '@nestjs/common';
+import { Controller, Post, Patch, Body, Get, UseGuards, Req, HttpCode, HttpStatus, Inject } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { FirebaseAuthDto } from './dto/firebase-auth.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangeStaffPinDto, StaffLoginDto } from './dto/staff-login.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 /**
@@ -74,12 +75,31 @@ export class AuthController {
     return this.authService.logout(authHeader, dto.refreshToken);
   }
 
+  /**
+   * The signed-in user's profile.
+   *
+   * Reads through to the database rather than echoing `req.user` — the JWT
+   * payload is `{ userId, phone, role, dhabaId }` and has no name, no wallet and
+   * no fan points, so the app that called this had nothing to render.
+   */
   @UseGuards(JwtAuthGuard)
   @Get('me')
-  getProfile(@Req() req: any) {
-    return {
-      success: true,
-      user: req.user,
-    };
+  async getProfile(@Req() req: any) {
+    return { success: true, user: await this.authService.buildProfile(req.user.userId) };
+  }
+
+  /**
+   * Edits the caller's own profile — name and favourite team, nothing else.
+   *
+   * The target is always `req.user.userId`, never an id from the body: a route
+   * that took the id from the request would let any signed-in user rename any
+   * account. Returns the full profile so the client can write the response
+   * straight into context instead of guessing what the server stored.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('me')
+  @HttpCode(HttpStatus.OK)
+  async updateProfile(@Req() req: any, @Body() dto: UpdateProfileDto) {
+    return { success: true, user: await this.authService.updateProfile(req.user.userId, dto) };
   }
 }

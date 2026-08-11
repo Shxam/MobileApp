@@ -41,7 +41,7 @@ spec:
             - configMapRef:
                 name: {{ include "ipl-dhaba-backend.fullname" . }}-config
             - secretRef:
-                name: {{ include "ipl-dhaba-backend.fullname" . }}-secret
+                name: {{ include "ipl-dhaba-backend.secretName" . }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           readinessProbe:

@@ -23,6 +23,8 @@ import { CelebrationsModule } from './modules/celebrations/celebrations.module';
 import { PaymentGatewayModule } from './modules/payment-gateway/payment-gateway.module';
 import { WalletModule } from './modules/wallet/wallet.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ReviewsModule } from './modules/reviews/reviews.module';
+import { AddressesModule } from './modules/addresses/addresses.module';
 import { CricketModule } from './modules/cricket/cricket.module';
 
 import { AppController } from './app.controller';
@@ -73,6 +75,8 @@ import { EventBusModule } from './common/event-bus/event-bus.module';
     CelebrationsModule,
     PaymentGatewayModule,
     NotificationsModule,
+    ReviewsModule,
+    AddressesModule,
     RealtimeModule,
     CricketModule,
     // Imports OrdersModule, so it is registered after it.

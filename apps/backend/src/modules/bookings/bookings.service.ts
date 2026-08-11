@@ -269,7 +269,16 @@ export class BookingsService {
       id: booking.id,
       bookingNumber: booking.bookingNumber,
       status: booking.status,
-      pitchName: booking.slot.turf?.name ?? booking.slot.pitchName,
+      turfId: booking.slot.turfId,
+      // "My bookings" prints the venue and the address on the pass. A standalone
+      // slot has no turf row, so its own pitch name stands in and the address is
+      // the dhaba itself rather than an empty line on a gate pass.
+      turfName: booking.slot.turf?.name ?? booking.slot.pitchName,
+      turfAddress: booking.slot.turf?.address ?? 'IPL Dhaba, Singarayakonda',
+      slotId: booking.slotId,
+      // The calendar day in IST — the day the customer booked, not the UTC day,
+      // which for a 23:00 floodlit slot is tomorrow.
+      date: this.formatDate(booking.slot.startTime),
       timeSlot: this.formatWindow(booking.slot.startTime, booking.slot.endTime),
       startTime: booking.slot.startTime.toISOString(),
       endTime: booking.slot.endTime.toISOString(),
@@ -289,6 +298,11 @@ export class BookingsService {
     const time = (date: Date) =>
       date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kolkata' });
     return `${time(startTime)} - ${time(endTime)}`;
+  }
+
+  /** `YYYY-MM-DD` in IST — the same key the slot picker sends back as `?date=`. */
+  private formatDate(value: Date): string {
+    return value.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
   }
 
   private parseDate(value: string): Date {

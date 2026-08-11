@@ -101,10 +101,36 @@ model User {
   driverProfile      DriverProfile?
   staffCredential    StaffCredential?
   voucherRedemptions VoucherRedemption[]
+  addresses          Address[]
 
   @@index([role])
   @@index([dhabaId])
   @@map("users")
+}
+
+/// A delivery address the customer saved for reuse at checkout.
+///
+/// The profile screen had an address book that lived in React state: "Add New"
+/// pushed onto an array that was discarded on reload, so the saved address the
+/// customer expected at checkout was never there. Orders still store their own
+/// `deliveryAddress` snapshot — editing an address later must not silently
+/// rewrite where an already-delivered order went.
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Customer-facing name, e.g. "Home", "Cage 2 bench".
+  label     String
+  /// Street, landmark and pincode as one block — what a rider actually reads.
+  detail    String
+  landmark  String?
+  pincode   String?
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@map("addresses")
 }
 
 /// Per-employee bcrypt PIN with lockout. Replaces the single shared STAFF_PIN.

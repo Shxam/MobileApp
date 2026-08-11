@@ -1,33 +1,86 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { MOCK_TURFS } from '../data/mockData';
-import { Turf, TurfSlot } from '../types';
+import { formatPaise, type Turf } from '../types';
+import {
+  ApiClient,
+  type TurfBookingView as TurfBookingRecord,
+  type TurfSlotView,
+} from '../services/apiClient';
+import { GatePassQr } from '../components/GatePassQr';
 import {
   MapPin,
   Star,
   Calendar as CalendarIcon,
-  Clock,
-  CheckCircle2,
   X,
   Wallet,
-  QrCode,
-  Map as MapIcon,
-  Filter,
-  Check,
-  Zap,
-  Radio,
+  Banknote,
   ChevronRight,
   ChevronLeft,
   ShieldCheck,
   Video,
   Mic,
   Award,
-  Plus,
-  Minus,
-  Sparkles,
+  Loader2,
+  AlertCircle,
+  Lock,
 } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
-import { AnimatedValue } from '../components/AnimatedValue';
+
+/**
+ * Turf slot booking, against the real `bookings` module.
+ *
+ * What this replaces: an eight-slot `generateSlots()` literal with rupee prices,
+ * a `MOCK_TURFS` array, add-ons the browser priced itself, `Math.round(total *
+ * 0.18)` GST, a 1200 ms `setTimeout` calling a non-existent `addTurfBooking()`
+ * on the context, and a decorative lucide `<QrCode />` glyph standing in for a
+ * gate pass. Nothing was ever sent to the server, so no slot was ever held.
+ *
+ * Now: slots come from `GET /bookings/slots?date=`, the booking from
+ * `POST /bookings`, and every figure shown after confirmation is the server's
+ * own breakdown. The pre-confirmation total is labelled an estimate because it
+ * is computed from the mirrored constants below; if those ever drift from the
+ * backend, the booking response is what the customer is actually charged.
+ */
+
+/** Mirror of `pricing.constants.ts`. Display only — the server bills. */
+const TURF_ADDON_FEE_PAISE = 150_00;
+const TURF_GST_RATE = 18;
+
+/** `CreateBookingDto` caps the array at 10. */
+const MAX_ADDONS = 10;
+
+/**
+ * Add-on names are free-form strings the server stores verbatim and charges a
+ * flat `TURF_ADDON_FEE_PAISE` for, each. The previous list gave four of them
+ * different invented prices (₹200/₹300/₹250/₹150), none of which the backend
+ * has any notion of.
+ */
+const ADDONS = [
+  { name: 'GoPro 4K Match Recording', icon: Video },
+  { name: 'Professional Box Umpire', icon: ShieldCheck },
+  { name: 'Commentary Mic & Sound System', icon: Mic },
+  { name: 'Tournament Leather Ball (2x)', icon: Award },
+] as const;
+
+/** `YYYY-MM-DD` in IST — the timezone the dhaba and its slots live in. */
+const istDate = (d: Date = new Date()) => d.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+/** Day arithmetic at noon UTC, which no IST offset can push across a date line. */
+const addDays = (iso: string, days: number) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  return istDate(new Date(Date.UTC(y, m - 1, d + days, 12)));
+};
+
+const applyGst = (paise: number) => Math.round((paise * TURF_GST_RATE) / 100);
+
+const formatDayLabel = (iso: string) => {
+  const [y, m, d] = iso.split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d, 12));
+  return {
+    weekday: at.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' }),
+    day: at.getUTCDate(),
+  };
+};
 
 interface TurfBookingViewProps {
   selectedTurfId?: string;
@@ -39,356 +92,444 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
   onNavigateHub,
 }) => {
   const shouldReduceMotion = useReducedMotion();
-  const { user, addTurfBooking, deductWallet, topUpWallet, addNotification, language } = useApp();
+  const {
+    user,
+    wallet,
+    refreshWallet,
+    refreshTurfBookings,
+    addNotification,
+    setIsAuthModalOpen,
+  } = useApp();
 
-  const [activeTurf, setActiveTurf] = useState<Turf | null>(
-    MOCK_TURFS.find((t) => t.id === selectedTurfId) || MOCK_TURFS[0]
-  );
-  const [showModal, setShowModal] = useState(false);
+  const [turfs, setTurfs] = useState<Turf[]>([]);
+  const [activeTurfId, setActiveTurfId] = useState<string | null>(selectedTurfId ?? null);
+  const [turfsError, setTurfsError] = useState<string | null>(null);
+
+  const [selectedDate, setSelectedDate] = useState<string>(() => addDays(istDate(), 1));
+  const [slots, setSlots] = useState<TurfSlotView[]>([]);
+  const [isLoadingSlots, setIsLoadingSlots] = useState(false);
+  const [slotsError, setSlotsError] = useState<string | null>(null);
+
+  const [activeCategory, setActiveCategory] = useState<string>('All');
+  const [selectedSlotId, setSelectedSlotId] = useState<string | null>(null);
+  const [selectedAddons, setSelectedAddons] = useState<string[]>([]);
+  const [paymentMethod, setPaymentMethod] = useState<'wallet' | 'cod'>('wallet');
+
   const [showCalendarModal, setShowCalendarModal] = useState(false);
-  const [selectedArea, setSelectedArea] = useState<string>('All');
-  const [activeSlotCategory, setActiveSlotCategory] = useState<'All' | 'Morning' | 'Afternoon' | 'Prime Evening' | 'Night Floodlit'>('All');
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date());
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [bookingError, setBookingError] = useState<string | null>(null);
+  const [confirmedBooking, setConfirmedBooking] = useState<TurfBookingRecord | null>(null);
 
-  // Booking Flow State
-  const [selectedDate, setSelectedDate] = useState<string>(
-    new Date(Date.now() + 86400000).toISOString().split('T')[0] // Tomorrow
+  // ── Data ──────────────────────────────────────────
+
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getTurfs()
+      .then((rows) => {
+        if (cancelled) return;
+        setTurfs(rows);
+        setActiveTurfId((current) =>
+          current && rows.some((t) => t.id === current) ? current : rows[0]?.id ?? null,
+        );
+      })
+      .catch((err) => {
+        if (!cancelled) setTurfsError(err instanceof Error ? err.message : 'Could not load turfs.');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const loadSlots = useCallback(async (date: string) => {
+    setIsLoadingSlots(true);
+    setSlotsError(null);
+    try {
+      setSlots(await ApiClient.getTurfSlots(date));
+    } catch (err) {
+      setSlots([]);
+      setSlotsError(err instanceof Error ? err.message : 'Could not load slots for this date.');
+    } finally {
+      setIsLoadingSlots(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    setSelectedSlotId(null);
+    void loadSlots(selectedDate);
+  }, [selectedDate, loadSlots]);
+
+  const activeTurf = useMemo(
+    () => turfs.find((t) => t.id === activeTurfId) ?? null,
+    [turfs, activeTurfId],
   );
 
-  // Month Calendar Navigation State
-  const [calendarViewDate, setCalendarViewDate] = useState<Date>(new Date());
+  /**
+   * Slots with no `turfId` are standalone pitches the dhaba sells directly, so
+   * they stay visible whichever turf card is open.
+   */
+  const turfSlots = useMemo(
+    () => slots.filter((s) => !activeTurfId || s.turfId === activeTurfId || s.turfId === null),
+    [slots, activeTurfId],
+  );
 
-  const [selectedSlot, setSelectedSlot] = useState<TurfSlot | null>(null);
-  const [selectedAddons, setSelectedAddons] = useState<{ name: string; price: number }[]>([]);
-  const [matchFormat, setMatchFormat] = useState('Box Cricket 7v7');
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [confirmedBookingId, setConfirmedBookingId] = useState<string | null>(null);
+  /** Built from the rows, not hardcoded — `category` is a free-form column. */
+  const categories = useMemo(
+    () => ['All', ...Array.from(new Set(turfSlots.map((s) => s.category)))],
+    [turfSlots],
+  );
 
-  // Generate 8 Full Matchday Slots Across 4 Categories
-  const generateSlots = (turf: Turf): TurfSlot[] => {
-    return [
-      { id: 's1', time: '6:00 - 7:00', price: 900, status: 'available', isFloodlit: false, category: 'Morning' },
-      { id: 's2', time: '7:00 - 8:00', price: 900, status: 'available', isFloodlit: false, category: 'Morning' },
-      { id: 's3', time: '3:00 - 4:00', price: 1000, status: 'available', isFloodlit: false, category: 'Afternoon' },
-      { id: 's4', time: '4:00 - 5:00', price: 1000, status: 'available', isFloodlit: false, category: 'Afternoon' },
-      { id: 's5', time: '6:00 - 7:00', price: 1200, status: 'available', isFloodlit: true, category: 'Prime Evening' },
-      { id: 's6', time: '7:00 - 8:00', price: 1200, status: 'available', isFloodlit: true, category: 'Prime Evening' },
-      { id: 's7', time: '8:00 - 9:00', price: 1300, status: 'available', isFloodlit: true, category: 'Night Floodlit' },
-      { id: 's8', time: '9:00 - 10:00', price: 1300, status: 'available', isFloodlit: true, category: 'Night Floodlit' },
-    ];
+  const visibleSlots = useMemo(
+    () => turfSlots.filter((s) => activeCategory === 'All' || s.category === activeCategory),
+    [turfSlots, activeCategory],
+  );
+
+  const selectedSlot = useMemo(
+    () => turfSlots.find((s) => s.id === selectedSlotId) ?? null,
+    [turfSlots, selectedSlotId],
+  );
+
+  // ── Estimated price (server is authoritative) ─────
+
+  const estimate = useMemo(() => {
+    if (!selectedSlot) return { subtotalPaise: 0, gstPaise: 0, totalPaise: 0 };
+    const subtotalPaise = selectedSlot.pricePaise + selectedAddons.length * TURF_ADDON_FEE_PAISE;
+    const gstPaise = applyGst(subtotalPaise);
+    return { subtotalPaise, gstPaise, totalPaise: subtotalPaise + gstPaise };
+  }, [selectedSlot, selectedAddons]);
+
+  const walletBalancePaise = wallet?.balancePaise ?? user.walletBalancePaise ?? 0;
+  const walletShortfall = paymentMethod === 'wallet' && walletBalancePaise < estimate.totalPaise;
+
+  const toggleAddon = (name: string) => {
+    setSelectedAddons((current) => {
+      if (current.includes(name)) return current.filter((a) => a !== name);
+      if (current.length >= MAX_ADDONS) return current;
+      return [...current, name];
+    });
   };
 
-  const allSlots = activeTurf ? generateSlots(activeTurf) : [];
-  const filteredSlots = allSlots.filter((s) => activeSlotCategory === 'All' || s.category === activeSlotCategory);
+  // ── Booking ───────────────────────────────────────
 
-  const ADDONS_LIST = [
-    { name: 'GoPro 4K Match Recording', price: 200, icon: Video },
-    { name: 'Professional Box Umpire', price: 300, icon: ShieldCheck },
-    { name: 'Commentary Mic & Sound System', price: 250, icon: Mic },
-    { name: 'Tournament Leather Ball (2x)', price: 150, icon: Award },
-  ];
-
-  const calculateTotal = (): number => {
-    let total = selectedSlot ? selectedSlot.price : 0;
-    selectedAddons.forEach((a) => (total += a.price));
-    return total;
-  };
-
-  const handleConfirmBooking = () => {
-    if (!activeTurf || !selectedSlot) return;
-
-    const totalAmount = calculateTotal();
+  const handleConfirmBooking = async () => {
+    if (!selectedSlot) return;
+    if (!user.isLoggedIn) {
+      setShowConfirmModal(false);
+      setIsAuthModalOpen(true);
+      return;
+    }
 
     setIsProcessing(true);
-    setTimeout(() => {
-      const newBooking = addTurfBooking({
-        turfId: activeTurf.id,
-        turfName: activeTurf.name,
-        turfAddress: activeTurf.address,
-        date: selectedDate,
-        slots: [selectedSlot],
-        totalAmount,
-        addons: selectedAddons,
-        matchFormat,
-      });
-
-      setIsProcessing(false);
-      setShowModal(false);
-      setConfirmedBookingId(newBooking.id);
-      addNotification(
-        '🏏 Booking Confirmed!',
-        `Your slot at ${activeTurf.name} for ${selectedDate} is confirmed. Gate pass generated!`,
-        'booking'
+    setBookingError(null);
+    try {
+      const booking = await ApiClient.createTurfBooking(
+        selectedSlot.id,
+        selectedAddons,
+        paymentMethod,
       );
-    }, 1200);
-  };
 
-  const toggleAddon = (addon: { name: string; price: number }) => {
-    if (selectedAddons.some((a) => a.name === addon.name)) {
-      setSelectedAddons(selectedAddons.filter((a) => a.name !== addon.name));
-    } else {
-      setSelectedAddons([...selectedAddons, addon]);
+      setConfirmedBooking(booking);
+      setShowConfirmModal(false);
+      setSelectedSlotId(null);
+      setSelectedAddons([]);
+
+      // The slot the customer just took is now `isBooked` for everyone; refetch
+      // rather than patching local state so a slot someone else claimed in the
+      // meantime also disappears.
+      await Promise.allSettled([loadSlots(selectedDate), refreshTurfBookings(), refreshWallet()]);
+
+      addNotification(
+        'Slot booked',
+        `${booking.bookingNumber} — ${booking.turfName}, ${booking.date} ${booking.timeSlot}.`,
+        'booking',
+      );
+    } catch (err) {
+      setBookingError(err instanceof Error ? err.message : 'The booking could not be completed.');
+      // A conflict means someone else took it between render and tap; the fresh
+      // list is what tells the customer that, so pull it either way.
+      void loadSlots(selectedDate);
+    } finally {
+      setIsProcessing(false);
     }
   };
 
-  // Helper to generate full month grid days
-  const getDaysInMonth = (year: number, month: number) => {
-    return new Date(year, month + 1, 0).getDate();
-  };
-
-  const getFirstDayOfMonth = (year: number, month: number) => {
-    return new Date(year, month, 1).getDay();
-  };
+  // ── Calendar ──────────────────────────────────────
 
   const currentYear = calendarViewDate.getFullYear();
   const currentMonth = calendarViewDate.getMonth();
   const monthName = calendarViewDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-  const totalDays = getDaysInMonth(currentYear, currentMonth);
-  const firstDay = getFirstDayOfMonth(currentYear, currentMonth);
-
-  const prevMonth = () => {
-    setCalendarViewDate(new Date(currentYear, currentMonth - 1, 1));
-  };
-
-  const nextMonth = () => {
-    setCalendarViewDate(new Date(currentYear, currentMonth + 1, 1));
-  };
+  const totalDays = new Date(currentYear, currentMonth + 1, 0).getDate();
+  const firstDay = new Date(currentYear, currentMonth, 1).getDay();
+  const today = istDate();
 
   const handleSelectCalendarDate = (day: number) => {
-    const monthFormatted = String(currentMonth + 1).padStart(2, '0');
-    const dayFormatted = String(day).padStart(2, '0');
-    const dateStr = `${currentYear}-${monthFormatted}-${dayFormatted}`;
+    const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    if (dateStr < today) return; // The server rejects a slot that has already started.
     setSelectedDate(dateStr);
     setShowCalendarModal(false);
-    addNotification('📅 Date Selected', `Turf slots loaded for ${dateStr}`, 'booking');
   };
-
-  // Generate date pills starting from selectedDate
-  const startDateObj = new Date(selectedDate || Date.now());
 
   return (
     <div className="space-y-4 p-4 pb-28 bg-slate-50 dark:bg-slate-950 min-h-screen text-slate-900 dark:text-white transition-colors">
-      
-      {/* 1. Header Banner */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-black text-slate-900 dark:text-white tracking-tight">Box Turf Booking</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Floodlit 500 Lux Cage • Singarayakonda, AP</p>
+          <h2 className="text-xl font-black tracking-tight">Box Turf Booking</h2>
+          <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+            {activeTurf ? activeTurf.area : 'Singarayakonda, AP'} · Floodlit cage
+          </p>
         </div>
-        <span className="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 font-extrabold text-xs px-3 py-1 rounded-full shadow-xs">
-          From ₹900/hr
-        </span>
+        {activeTurf && (
+          <span className="bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 font-extrabold text-xs px-3 py-1 rounded-full">
+            {formatPaise(activeTurf.pricePerHourPaise)}/hr
+          </span>
+        )}
       </div>
 
-      {/* 2. Turf Main Feature Card */}
+      {turfsError && (
+        <p className="text-[11px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2 flex items-start gap-1.5">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          {turfsError}
+        </p>
+      )}
+
+      {/* Turf switcher — only when there is a real choice */}
+      {turfs.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+          {turfs.map((turf) => (
+            <button
+              key={turf.id}
+              onClick={() => setActiveTurfId(turf.id)}
+              className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 border transition-all ${
+                activeTurfId === turf.id
+                  ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900'
+                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-800'
+              }`}
+            >
+              {turf.name}
+            </button>
+          ))}
+        </div>
+      )}
+
       {activeTurf && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs space-y-4">
-          <div className="relative rounded-2xl overflow-hidden h-44 bg-slate-100">
-            <img src={activeTurf.image} alt={activeTurf.name} className="w-full h-full object-cover" />
-            <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-full text-xs font-extrabold text-slate-900 flex items-center gap-1 shadow-xs">
-              <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-              <span>{activeTurf.rating} ({activeTurf.reviewsCount} reviews)</span>
+          {activeTurf.image && (
+            <div className="relative rounded-2xl overflow-hidden h-44 bg-slate-100 dark:bg-slate-800">
+              <img
+                src={activeTurf.image}
+                alt={activeTurf.name}
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute top-3 left-3 bg-white/90 backdrop-blur-md px-2.5 py-1 rounded-full text-xs font-extrabold text-slate-900 flex items-center gap-1">
+                <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                <span>
+                  {activeTurf.rating.toFixed(1)} ({activeTurf.reviewsCount} reviews)
+                </span>
+              </div>
             </div>
-            <div className="absolute bottom-3 left-3 bg-slate-900/80 backdrop-blur-md text-emerald-300 text-xs px-3 py-1 rounded-full font-bold">
-              ⚡ 500 Lux Floodlights
-            </div>
-          </div>
+          )}
 
           <div className="space-y-1">
-            <h3 className="font-extrabold text-slate-900 dark:text-white text-base">{activeTurf.name}</h3>
+            <h3 className="font-extrabold text-base">{activeTurf.name}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1">
-              <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+              <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
               <span>{activeTurf.address}</span>
             </p>
           </div>
 
-          {/* Amenities Chips */}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {activeTurf.amenities.map((amenity, idx) => (
-              <span key={idx} className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-200/60 dark:border-slate-700">
-                {amenity}
-              </span>
-            ))}
-          </div>
+          {activeTurf.amenities.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {activeTurf.amenities.map((amenity) => (
+                <span
+                  key={amenity}
+                  className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 text-[11px] font-semibold px-2.5 py-1 rounded-full border border-slate-200/60 dark:border-slate-700"
+                >
+                  {amenity}
+                </span>
+              ))}
+            </div>
+          )}
 
-          {/* 3. CALENDAR PICKER & DATE SELECTOR BAR */}
+          {/* Date */}
           <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs">
-              <div className="flex items-center gap-2">
-                <span className="font-extrabold text-slate-900 dark:text-white">Select Date</span>
-                
-                {/* Visual Interactive Month Calendar Button */}
-                <button
-                  onClick={() => setShowCalendarModal(true)}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-extrabold shadow-green-sm active:scale-95 transition-all"
-                >
-                  <CalendarIcon className="w-3.5 h-3.5" />
-                  <span>Pick Future Date 📅</span>
-                </button>
-              </div>
-
-              {/* Selected Date Tag */}
-              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800 text-xs">
+              <button
+                onClick={() => setShowCalendarModal(true)}
+                className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-extrabold active:scale-95 transition-all"
+              >
+                <CalendarIcon className="w-3.5 h-3.5" />
+                <span>Pick a date</span>
+              </button>
+              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
                 {selectedDate}
               </span>
             </div>
 
-            {/* Quick Date Strip */}
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">
               {[0, 1, 2, 3, 4, 5, 6, 7].map((offset) => {
-                const dateObj = new Date(startDateObj.getTime() + offset * 86400000);
-                const dateStr = dateObj.toISOString().split('T')[0];
-                const dayName = dateObj.toLocaleDateString('en-US', { weekday: 'short' });
-                const dayNum = dateObj.getDate();
+                const dateStr = addDays(today, offset);
+                const { weekday, day } = formatDayLabel(dateStr);
                 const isSelected = selectedDate === dateStr;
-
                 return (
                   <button
                     key={dateStr}
                     onClick={() => setSelectedDate(dateStr)}
                     className={`flex flex-col items-center justify-center min-w-[56px] py-2.5 rounded-2xl border transition-all shrink-0 ${
                       isSelected
-                        ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm scale-105 font-bold'
-                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
+                        ? 'bg-emerald-500 text-white border-emerald-500 scale-105 font-bold'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200/80 dark:border-slate-700'
                     }`}
                   >
-                    <span className="text-[10px] uppercase opacity-80">{dayName}</span>
-                    <span className="text-sm font-extrabold">{dayNum}</span>
+                    <span className="text-[10px] uppercase opacity-80">{weekday}</span>
+                    <span className="text-sm font-extrabold">{day}</span>
                   </button>
                 );
               })}
             </div>
           </div>
 
-          {/* 4. Slot Category Filter Tabs */}
+          {/* Slots */}
           <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between">
-              <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">Available Time Slots</h4>
-              <span className="text-[11px] font-bold text-emerald-500">{filteredSlots.length} slots</span>
+              <h4 className="text-xs font-extrabold">Available time slots</h4>
+              <span className="text-[11px] font-bold text-emerald-500">
+                {isLoadingSlots ? '…' : `${visibleSlots.filter((s) => !s.isBooked).length} open`}
+              </span>
             </div>
 
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
-              {(['All', 'Morning', 'Afternoon', 'Prime Evening', 'Night Floodlit'] as const).map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveSlotCategory(cat)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition-all border ${
-                    activeSlotCategory === cat
-                      ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900 shadow-xs'
-                      : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100'
-                  }`}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-
-            {/* Slots Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
-              {filteredSlots.map((slot) => {
-                const isSelected = selectedSlot?.id === slot.id;
-                return (
-                  <div
-                    key={slot.id}
-                    onClick={() => setSelectedSlot(isSelected ? null : slot)}
-                    className={`p-3 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between overflow-hidden relative ${
-                      isSelected
-                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 text-emerald-950 dark:text-emerald-100 shadow-md ring-2 ring-emerald-500/30'
-                        : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300 shadow-xs'
+            {categories.length > 1 && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar">
+                {categories.map((cat) => (
+                  <button
+                    key={cat}
+                    onClick={() => setActiveCategory(cat)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 transition-all border ${
+                      activeCategory === cat
+                        ? 'bg-slate-900 dark:bg-slate-100 text-white dark:text-slate-900 border-slate-900'
+                        : 'bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700'
                     }`}
                   >
-                    {/* Tier 1: Header Category Label + Top Right Price Badge */}
-                    <div className="flex items-center justify-between gap-1 mb-2">
-                      <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        {slot.category}
-                      </span>
-                      <span className={`font-black text-xs px-2.5 py-0.5 rounded-md border shrink-0 ${
-                        isSelected
-                          ? 'bg-emerald-500 text-white border-emerald-400 shadow-xs'
-                          : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-                      }`}>
-                        ₹{slot.price}
-                      </span>
-                    </div>
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
 
-                    {/* Tier 2: Dedicated Time Display (Full Card Width - Cannot Overlap) */}
-                    <div className="flex items-center gap-2 py-1">
-                      <div className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs shrink-0 ${isSelected ? 'bg-emerald-500 text-white shadow-green-sm' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'}`}>
-                        🏏
-                      </div>
-                      <div className="font-black text-xs text-slate-900 dark:text-white tracking-tight whitespace-nowrap min-w-0">
-                        {slot.time}
-                      </div>
-                    </div>
+            {slotsError && (
+              <p className="text-[11px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2 flex items-start gap-1.5">
+                <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                {slotsError}
+              </p>
+            )}
 
-                    {/* Tier 3: Floodlit Tag Footer */}
-                    {slot.isFloodlit && (
-                      <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px]">
-                        <span className="text-emerald-600 dark:text-emerald-400 font-extrabold flex items-center gap-1">
-                          ⚡ Floodlit Arena
+            {isLoadingSlots ? (
+              <div className="flex items-center justify-center gap-2 py-8 text-xs font-bold text-slate-400">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Loading slots…</span>
+              </div>
+            ) : visibleSlots.length === 0 ? (
+              <p className="text-xs text-slate-500 dark:text-slate-400 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-3 py-6 text-center font-medium">
+                No slots published for {selectedDate}. Try another date.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                {visibleSlots.map((slot) => {
+                  const isSelected = selectedSlotId === slot.id;
+                  return (
+                    <button
+                      key={slot.id}
+                      type="button"
+                      disabled={slot.isBooked}
+                      onClick={() => setSelectedSlotId(isSelected ? null : slot.id)}
+                      className={`p-3 rounded-2xl border transition-all text-left flex flex-col justify-between relative ${
+                        slot.isBooked
+                          ? 'bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-800 opacity-60 cursor-not-allowed'
+                          : isSelected
+                            ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500 ring-2 ring-emerald-500/30'
+                            : 'bg-white dark:bg-slate-900 border-slate-200/80 dark:border-slate-800 hover:border-emerald-300'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-1 mb-2">
+                        <span className="text-[10px] font-extrabold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                          {slot.category}
+                        </span>
+                        <span
+                          className={`font-black text-xs px-2.5 py-0.5 rounded-md border shrink-0 ${
+                            isSelected
+                              ? 'bg-emerald-500 text-white border-emerald-400'
+                              : 'bg-emerald-50 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+                          }`}
+                        >
+                          {formatPaise(slot.pricePaise)}
                         </span>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+
+                      <div className="flex items-center gap-2 py-1">
+                        <div
+                          className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs shrink-0 ${
+                            isSelected
+                              ? 'bg-emerald-500 text-white'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                          }`}
+                        >
+                          🏏
+                        </div>
+                        <div className="font-black text-xs tracking-tight whitespace-nowrap min-w-0">
+                          {slot.timeSlot}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-[10px] font-extrabold">
+                        <span className="text-slate-500 dark:text-slate-400">{slot.pitchName}</span>
+                        {slot.isBooked ? (
+                          <span className="text-slate-400 flex items-center gap-1">
+                            <Lock className="w-3 h-3" /> Booked
+                          </span>
+                        ) : slot.isFloodlit ? (
+                          <span className="text-emerald-600 dark:text-emerald-400">⚡ Floodlit</span>
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
-          {/* Match Format Options */}
+          {/* Add-ons */}
           <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">Match Format</h4>
-            <div className="grid grid-cols-2 gap-2">
-              {['Box Cricket T10', 'Box Cricket 6v6'].map((fmt) => (
-                <motion.button
-                  key={fmt}
-                  type="button"
-                  onClick={() => setMatchFormat(fmt)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.96 }}
-                  className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
-                    matchFormat === fmt
-                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm'
-                      : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {fmt}
-                </motion.button>
-              ))}
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-extrabold">Matchday add-ons</h4>
+              <span className="text-[10px] font-bold text-slate-400">
+                {formatPaise(TURF_ADDON_FEE_PAISE)} each
+              </span>
             </div>
-          </div>
-
-          {/* Add-ons List */}
-          <div className="space-y-2 pt-2 border-t border-slate-100 dark:border-slate-800">
-            <h4 className="text-xs font-extrabold text-slate-900 dark:text-white">Matchday Add-ons</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {ADDONS_LIST.map((addon) => {
+              {ADDONS.map((addon) => {
                 const Icon = addon.icon;
-                const isChecked = selectedAddons.some((a) => a.name === addon.name);
+                const isChecked = selectedAddons.includes(addon.name);
                 return (
                   <motion.button
                     type="button"
                     key={addon.name}
-                    onClick={() => toggleAddon(addon)}
+                    onClick={() => toggleAddon(addon.name)}
                     whileTap={{ scale: 0.98 }}
-                    className={`p-2.5 rounded-xl border transition-all cursor-pointer flex items-center justify-between ${
+                    className={`p-2.5 rounded-xl border transition-all flex items-center justify-between gap-2 ${
                       isChecked
                         ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-100'
-                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 hover:bg-slate-100 text-slate-700 dark:text-slate-200'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200/80 dark:border-slate-700 text-slate-700 dark:text-slate-200'
                     }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <Icon className={`w-4 h-4 ${isChecked ? 'text-emerald-600' : 'text-slate-400'}`} />
-                      <span className="text-xs font-bold">{addon.name}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Icon
+                        className={`w-4 h-4 shrink-0 ${isChecked ? 'text-emerald-600' : 'text-slate-400'}`}
+                      />
+                      <span className="text-xs font-bold truncate">{addon.name}</span>
                     </div>
-                    <span className="flex items-center gap-1.5 text-xs font-extrabold text-emerald-600">
-                      +₹{addon.price}
-                      <AnimatePresence initial={false}>
-                        {isChecked && (
-                          <motion.svg viewBox="0 0 20 20" className="h-4 w-4 rounded-full bg-emerald-500 p-0.5 text-white" initial={{ pathLength: 0, opacity: 0 }} animate={{ pathLength: 1, opacity: 1 }} exit={{ pathLength: 0, opacity: 0 }} transition={{ duration: 0.2 }}>
-                            <motion.path d="M4 10.5 8 14l8-8" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                          </motion.svg>
-                        )}
-                      </AnimatePresence>
+                    <span className="text-xs font-extrabold text-emerald-600 shrink-0">
+                      +{formatPaise(TURF_ADDON_FEE_PAISE)}
                     </span>
                   </motion.button>
                 );
@@ -398,27 +539,31 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
         </div>
       )}
 
-      {/* Fixed Bottom Booking Bar */}
+      {/* Sticky total */}
       {selectedSlot && (
         <div className="fixed bottom-16 left-0 right-0 z-30 p-3">
-          <div className="max-w-md mx-auto bg-slate-900 text-white rounded-full p-3 px-5 shadow-2xl flex items-center justify-between border border-slate-800 backdrop-blur-lg animate-slide-up">
+          <div className="max-w-md mx-auto bg-slate-900 text-white rounded-full p-3 px-5 shadow-2xl flex items-center justify-between border border-slate-800 backdrop-blur-lg">
             <div>
-              <div className="text-[10px] text-emerald-300 font-semibold uppercase">Total Amount</div>
-              <div className="text-xl font-black text-white">₹{calculateTotal()}</div>
+              <div className="text-[10px] text-emerald-300 font-semibold uppercase">
+                Estimated total
+              </div>
+              <div className="text-xl font-black">{formatPaise(estimate.totalPaise)}</div>
             </div>
-
             <button
-              onClick={() => setShowModal(true)}
-              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold px-6 py-2.5 rounded-full shadow-green-sm active:scale-95 transition-all flex items-center gap-1.5"
+              onClick={() => {
+                setBookingError(null);
+                setShowConfirmModal(true);
+              }}
+              className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-extrabold px-6 py-2.5 rounded-full active:scale-95 transition-all flex items-center gap-1.5"
             >
-              <span>Confirm & Book Slot</span>
+              <span>Review &amp; book</span>
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
 
-      {/* 5. VISUAL INTERACTIVE MONTHLY CALENDAR MODAL */}
+      {/* Calendar */}
       <AnimatePresence>
         {showCalendarModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md p-4">
@@ -426,160 +571,224 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-4 shadow-2xl relative"
+              className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-5 space-y-4 shadow-2xl"
             >
-              {/* Header */}
               <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
                 <div className="flex items-center gap-2">
                   <CalendarIcon className="w-5 h-5 text-emerald-500" />
-                  <h3 className="font-extrabold text-slate-900 dark:text-white text-sm">Select Future Booking Date</h3>
+                  <h3 className="font-extrabold text-sm">Select a booking date</h3>
                 </div>
                 <button
                   onClick={() => setShowCalendarModal(false)}
-                  className="w-8 h-8 rounded-full bg-slate-100 text-slate-600 flex items-center justify-center hover:bg-slate-200"
+                  aria-label="Close calendar"
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center"
                 >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Month Navigation */}
-              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-2xl border border-slate-200/80">
+              <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800 p-2.5 rounded-2xl border border-slate-200/80 dark:border-slate-700">
                 <button
-                  onClick={prevMonth}
-                  className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-slate-700 flex items-center justify-center hover:bg-slate-100"
+                  onClick={() => setCalendarViewDate(new Date(currentYear, currentMonth - 1, 1))}
+                  aria-label="Previous month"
+                  className="w-8 h-8 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center"
                 >
                   <ChevronLeft className="w-4 h-4" />
                 </button>
-                <span className="font-extrabold text-sm text-slate-900">{monthName}</span>
+                <span className="font-extrabold text-sm">{monthName}</span>
                 <button
-                  onClick={nextMonth}
-                  className="w-8 h-8 rounded-xl bg-white border border-slate-200 text-slate-700 flex items-center justify-center hover:bg-slate-100"
+                  onClick={() => setCalendarViewDate(new Date(currentYear, currentMonth + 1, 1))}
+                  aria-label="Next month"
+                  className="w-8 h-8 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 flex items-center justify-center"
                 >
                   <ChevronRight className="w-4 h-4" />
                 </button>
               </div>
 
-              {/* Day Headers */}
               <div className="grid grid-cols-7 text-center font-extrabold text-[11px] text-slate-400 uppercase pb-1">
-                <span>Sun</span>
-                <span>Mon</span>
-                <span>Tue</span>
-                <span>Wed</span>
-                <span>Thu</span>
-                <span>Fri</span>
-                <span>Sat</span>
+                {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                  <span key={d}>{d}</span>
+                ))}
               </div>
 
-              {/* Month Grid */}
               <div className="grid grid-cols-7 gap-1 text-center">
-                {/* Empty Offset Slots */}
                 {Array.from({ length: firstDay }).map((_, i) => (
                   <div key={`empty_${i}`} className="h-9" />
                 ))}
-
-                {/* Days of Month */}
                 {Array.from({ length: totalDays }).map((_, i) => {
                   const day = i + 1;
-                  const monthFormatted = String(currentMonth + 1).padStart(2, '0');
-                  const dayFormatted = String(day).padStart(2, '0');
-                  const thisDateStr = `${currentYear}-${monthFormatted}-${dayFormatted}`;
-                  const isToday = new Date().toISOString().split('T')[0] === thisDateStr;
+                  const thisDateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                  const isPast = thisDateStr < today;
+                  const isToday = thisDateStr === today;
                   const isSelected = selectedDate === thisDateStr;
 
                   return (
                     <motion.button
                       key={day}
                       onClick={() => handleSelectCalendarDate(day)}
-                      whileTap={{ scale: 0.92 }}
-                      className={`relative overflow-hidden h-9.5 rounded-xl font-bold text-xs flex flex-col items-center justify-center transition-all ${
-                        isSelected
-                          ? 'text-white shadow-green-sm scale-110 font-extrabold z-10'
-                          : isToday
-                          ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
-                          : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-emerald-50 hover:text-emerald-600'
+                      disabled={isPast}
+                      whileTap={isPast ? undefined : { scale: 0.92 }}
+                      className={`relative overflow-hidden h-9 rounded-xl font-bold text-xs flex items-center justify-center transition-all ${
+                        isPast
+                          ? 'text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                          : isSelected
+                            ? 'text-white font-extrabold z-10'
+                            : isToday
+                              ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800'
+                              : 'bg-slate-50 dark:bg-slate-800 text-slate-800 dark:text-slate-200'
                       }`}
                     >
-                      {isSelected && <motion.span layoutId="booking-date" transition={{ type: 'spring', stiffness: 380, damping: 28 }} className="absolute inset-0 rounded-xl bg-emerald-500" />}
+                      {isSelected && (
+                        <motion.span
+                          layoutId="booking-date"
+                          transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+                          className="absolute inset-0 rounded-xl bg-emerald-500"
+                        />
+                      )}
                       <span className="relative">{day}</span>
                     </motion.button>
                   );
                 })}
-              </div>
-
-              {/* Manual Date Input Picker Backup */}
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-600 dark:text-slate-300">Specific Date:</span>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => {
-                    if (e.target.value) {
-                      setSelectedDate(e.target.value);
-                      setShowCalendarModal(false);
-                    }
-                  }}
-                  className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-900 dark:text-white font-extrabold focus:outline-none focus:border-emerald-500"
-                />
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* MODAL CHECKOUT CONFIRMATION */}
+      {/* Confirm */}
       <AnimatePresence>
-        {showModal && selectedSlot && (
+        {showConfirmModal && selectedSlot && (
           <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/70 backdrop-blur-xs p-0 sm:p-4">
             <motion.div
               initial={{ y: '100%' }}
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
-              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl overflow-hidden p-5 space-y-4 shadow-2xl relative"
+              className="w-full max-w-md bg-white dark:bg-slate-900 rounded-t-3xl sm:rounded-3xl overflow-hidden p-5 space-y-4 shadow-2xl"
             >
               <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
-                <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Booking Summary</h3>
-                <button onClick={() => setShowModal(false)} className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center">
+                <h3 className="font-extrabold text-base">Booking summary</h3>
+                <button
+                  onClick={() => setShowConfirmModal(false)}
+                  disabled={isProcessing}
+                  aria-label="Close summary"
+                  className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center disabled:opacity-50"
+                >
                   <X className="w-4 h-4" />
                 </button>
               </div>
 
               <div className="space-y-2 text-xs">
                 <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>Pitch Slot ({selectedSlot.time})</span>
-                  <span className="font-bold text-slate-900 dark:text-white">₹{selectedSlot.price}</span>
+                  <span>
+                    {selectedSlot.pitchName} · {selectedSlot.timeSlot}
+                  </span>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {formatPaise(selectedSlot.pricePaise)}
+                  </span>
                 </div>
-                {selectedAddons.map((a) => (
-                  <div key={a.name} className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>{a.name}</span>
-                    <span className="font-bold text-slate-900 dark:text-white">₹{a.price}</span>
+                {selectedAddons.map((name) => (
+                  <div key={name} className="flex justify-between text-slate-600 dark:text-slate-300">
+                    <span className="truncate pr-2">{name}</span>
+                    <span className="font-bold text-slate-900 dark:text-white shrink-0">
+                      {formatPaise(TURF_ADDON_FEE_PAISE)}
+                    </span>
                   </div>
                 ))}
                 <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                  <span>Turf GST (18%)</span>
-                  <span className="font-bold text-slate-900 dark:text-white">₹{Math.round(calculateTotal() * 0.18)}</span>
+                  <span>Turf GST ({TURF_GST_RATE}%)</span>
+                  <span className="font-bold text-slate-900 dark:text-white">
+                    {formatPaise(estimate.gstPaise)}
+                  </span>
                 </div>
-
                 <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-between items-center text-sm font-black text-emerald-600">
-                  <span>Grand Total</span>
-                  <span>₹<AnimatedValue value={Math.round(calculateTotal() * 1.18)} /></span>
+                  <span>Estimated total</span>
+                  <span>{formatPaise(estimate.totalPaise)}</span>
                 </div>
+                <p className="text-[10px] text-slate-400 font-medium">
+                  The dhaba confirms the final amount when the slot is held.
+                </p>
               </div>
 
+              {/* Payment — turf bookings settle at the wallet or the gate */}
+              <div className="space-y-2">
+                <span className="block text-xs font-bold text-slate-600 dark:text-slate-300">
+                  Payment
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('wallet')}
+                    className={`p-3 rounded-2xl border text-left transition-all ${
+                      paymentMethod === 'wallet'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    <Wallet className="w-4 h-4 text-emerald-500 mb-1" />
+                    <span className="block text-xs font-extrabold">Wallet</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      {formatPaise(walletBalancePaise)} available
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('cod')}
+                    className={`p-3 rounded-2xl border text-left transition-all ${
+                      paymentMethod === 'cod'
+                        ? 'bg-emerald-50 dark:bg-emerald-950/60 border-emerald-500'
+                        : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    <Banknote className="w-4 h-4 text-emerald-500 mb-1" />
+                    <span className="block text-xs font-extrabold">Pay at venue</span>
+                    <span className="block text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                      Settle at the gate
+                    </span>
+                  </button>
+                </div>
+                {walletShortfall && (
+                  <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                    Your wallet is short by {formatPaise(estimate.totalPaise - walletBalancePaise)}.
+                    Top up from the wallet tab, or pay at the venue.
+                  </p>
+                )}
+              </div>
+
+              {bookingError && (
+                <p
+                  role="alert"
+                  className="text-[11px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2 flex items-start gap-1.5"
+                >
+                  <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                  {bookingError}
+                </p>
+              )}
+
               <button
-                onClick={handleConfirmBooking}
-                disabled={isProcessing}
-                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full shadow-green-sm active:scale-95 transition-all text-xs"
+                onClick={() => void handleConfirmBooking()}
+                disabled={isProcessing || walletShortfall}
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full active:scale-95 transition-all text-xs flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
               >
-                {isProcessing ? 'Generating QR Pass...' : 'Pay & Confirm Booking'}
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Holding your slot…</span>
+                  </>
+                ) : (
+                  <span>
+                    {user.isLoggedIn ? 'Confirm booking' : 'Sign in to book'} ·{' '}
+                    {formatPaise(estimate.totalPaise)}
+                  </span>
+                )}
               </button>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
 
-      {/* QR GATE PASS CONFIRMATION MODAL */}
+      {/* Gate pass */}
       <AnimatePresence>
-        {confirmedBookingId && (
+        {confirmedBooking && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-xs p-4">
             <motion.div
               initial={{ scale: 0.9, opacity: 0 }}
@@ -587,33 +796,61 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
               exit={{ scale: 0.9, opacity: 0 }}
               className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-3xl p-6 text-center space-y-4 shadow-2xl"
             >
-              <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center mx-auto text-2xl">
+              <div className="w-14 h-14 rounded-full bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 flex items-center justify-center mx-auto text-2xl">
                 ✓
               </div>
 
               <div className="space-y-1">
-                <h3 className="font-black text-slate-900 dark:text-white text-lg">Slot Reserved!</h3>
-                <p className="text-xs text-slate-500 dark:text-slate-400">Show this QR pass at Singarayakonda Pitch gate</p>
+                <h3 className="font-black text-lg">Slot reserved</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  {confirmedBooking.turfName} · {confirmedBooking.date} ·{' '}
+                  {confirmedBooking.timeSlot}
+                </p>
               </div>
 
               <div className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 space-y-2">
-                <motion.div
-                  initial={shouldReduceMotion ? false : { clipPath: 'inset(0 0 100% 0)', opacity: 0 }}
-                  animate={{ clipPath: 'inset(0 0 0% 0)', opacity: 1 }}
-                  transition={{ duration: 0.4, ease: 'easeOut' }}
-                  className="w-40 h-40 bg-white p-2 mx-auto rounded-xl shadow-inner flex items-center justify-center border border-slate-200"
-                >
-                  <QrCode className="w-32 h-32 text-slate-900" />
-                </motion.div>
-                <div className="text-[10px] text-slate-400 font-mono">PASS #{confirmedBookingId}</div>
+                {confirmedBooking.gatePassToken ? (
+                  <motion.div
+                    initial={shouldReduceMotion ? false : { clipPath: 'inset(0 0 100% 0)', opacity: 0 }}
+                    animate={{ clipPath: 'inset(0 0 0% 0)', opacity: 1 }}
+                    transition={{ duration: 0.4, ease: 'easeOut' }}
+                    className="mx-auto w-fit"
+                  >
+                    {/* The signed token itself — this is what the gate scanner
+                        posts to /bookings/verify-gate-pass. */}
+                    <GatePassQr token={confirmedBooking.gatePassToken} size={168} />
+                  </motion.div>
+                ) : (
+                  <p className="text-[11px] font-bold text-amber-600 dark:text-amber-400 py-6">
+                    No gate pass was issued for this booking. Show your booking number at the gate.
+                  </p>
+                )}
+                <div className="text-[10px] text-slate-400 font-mono break-all">
+                  {confirmedBooking.bookingNumber}
+                </div>
+              </div>
+
+              <div className="text-xs space-y-1 text-left bg-slate-50 dark:bg-slate-800 rounded-2xl p-3 border border-slate-200 dark:border-slate-700">
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                  <span>Subtotal</span>
+                  <span className="font-bold">{formatPaise(confirmedBooking.subtotalPaise)}</span>
+                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                  <span>GST</span>
+                  <span className="font-bold">{formatPaise(confirmedBooking.gstAmountPaise)}</span>
+                </div>
+                <div className="flex justify-between font-black text-emerald-600 pt-1 border-t border-slate-200 dark:border-slate-700">
+                  <span>Paid ({confirmedBooking.paymentMethod})</span>
+                  <span>{formatPaise(confirmedBooking.totalAmountPaise)}</span>
+                </div>
               </div>
 
               <button
                 onClick={() => {
-                  setConfirmedBookingId(null);
+                  setConfirmedBooking(null);
                   onNavigateHub();
                 }}
-                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full shadow-green-sm text-xs"
+                className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3 rounded-full text-xs"
               >
                 View in My Hub
               </button>

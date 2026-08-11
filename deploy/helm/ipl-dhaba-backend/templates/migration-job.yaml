@@ -28,5 +28,5 @@ spec:
           command: ["npx", "prisma", "migrate", "deploy"]
           envFrom:
             - secretRef:
-                name: {{ include "ipl-dhaba-backend.fullname" . }}-secret
+                name: {{ include "ipl-dhaba-backend.secretName" . }}
 {{- end }}

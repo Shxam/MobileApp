@@ -34,7 +34,7 @@ export class NotificationsService {
   async list(userId: string, limit: number, unreadOnly: boolean) {
     const take = Math.min(Math.max(limit, 1), MAX_PAGE_SIZE);
 
-    const [items, unreadCount] = await Promise.all([
+    const [rows, unreadCount] = await Promise.all([
       this.prisma.notification.findMany({
         where: { userId, ...(unreadOnly ? { read: false } : {}) },
         orderBy: { createdAt: 'desc' },
@@ -42,6 +42,17 @@ export class NotificationsService {
       }),
       this.prisma.notification.count({ where: { userId, read: false } }),
     ]);
+
+    // `createdAt` must serialize as an ISO string: the frontend's notification
+    // list renders `timestamp` directly and sorts nothing.
+    const items = rows.map((n) => ({
+      id: n.id,
+      title: n.title,
+      message: n.message,
+      type: n.type,
+      read: n.read,
+      timestamp: n.createdAt.toISOString(),
+    }));
 
     return { items, unreadCount };
   }

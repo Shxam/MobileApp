@@ -7,12 +7,40 @@ import { PrismaService } from '../../common/prisma/prisma.service';
 import { FirebaseAdminService } from '../../common/firebase/firebase-admin.service';
 import { FirebaseAuthDto } from './dto/firebase-auth.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { UpdateProfileDto } from './dto/update-profile.dto';
 import { blocklistKey, refreshKey } from './token-keys';
 
 export interface TokenPayload {
   sub: string;
   phone: string;
   type: 'access' | 'refresh';
+}
+
+/**
+ * The user as every client app consumes it. Mirrors `packages/types`
+ * `UserProfile`.
+ *
+ * This exists because the three places that returned "the user" returned three
+ * different shapes: `/auth/firebase` handed back the raw Prisma row (no wallet,
+ * no fan points, `createdAt` as a `Date`), `/auth/staff-login` a hand-built
+ * subset, and `/auth/me` the JWT payload — `{ userId, phone, role, dhabaId }`,
+ * which has no `name` and no `id`. The customer app read `user.walletBalance`
+ * off all three and got `undefined` every time, which is why the balance was
+ * kept in client state and topped up locally.
+ */
+export interface AuthUserProfile {
+  id: string;
+  name: string;
+  phone: string;
+  favoriteTeam: string | null;
+  walletBalancePaise: number;
+  fanPoints: number;
+  role: string;
+  dhabaId: string | null;
+  employeeId: string | null;
+  isLoggedIn: true;
+  mustChangePin?: boolean;
+  createdAt: string;
 }
 
 const REFRESH_TTL_SECONDS = 7 * 86400;
@@ -46,7 +74,9 @@ export class AuthService {
    * Client performs Firebase Phone OTP verification, obtains Firebase ID Token,
    * and sends it here for cryptographic verification.
    */
-  async verifyFirebaseToken(dto: FirebaseAuthDto): Promise<{ accessToken: string; refreshToken: string; user: any }> {
+  async verifyFirebaseToken(
+    dto: FirebaseAuthDto,
+  ): Promise<{ accessToken: string; refreshToken: string; user: AuthUserProfile }> {
     let decodedToken;
     try {
       decodedToken = await this.firebaseAdmin.verifyIdToken(dto.idToken);
@@ -100,7 +130,7 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user.id, phone, user.role, user.dhabaId);
 
-    return { ...tokens, user };
+    return { ...tokens, user: await this.buildProfile(user.id) };
   }
 
   /**
@@ -221,18 +251,20 @@ export class AuthService {
       { secret: env.jwtSecret, expiresIn: env.staffTokenTtl },
     );
 
+    // Staff get a refresh token too. Without one, the KDS and driver apps hit a
+    // hard 401 the moment the access token expires mid-shift and drop the
+    // operator back to the login screen with an order half-cooked; `ApiClient`
+    // has a refresh path and nothing to feed it.
+    const refreshToken = this.jwtService.sign(
+      { sub: staff.id, phone: staff.phone, type: 'refresh' } satisfies TokenPayload,
+      { secret: env.jwtRefreshSecret, expiresIn: '7d' },
+    );
+    await this.redisService.set(refreshKey(refreshToken), staff.id, REFRESH_TTL_SECONDS);
+
     return {
       accessToken,
-      user: {
-        id: staff.id,
-        employeeId,
-        name: staff.name,
-        role: staff.role,
-        dhabaId,
-        // The client routes to a change-PIN screen on first login.
-        mustChangePin: credential.mustChangePin,
-        createdAt: staff.createdAt.toISOString(),
-      },
+      refreshToken,
+      user: await this.buildProfile(staff.id),
     };
   }
 
@@ -279,6 +311,61 @@ export class AuthService {
       await this.redisService.del(refreshKey(refreshToken));
     }
     return { success: true };
+  }
+
+  /**
+   * Builds the client-facing profile for a user id.
+   *
+   * Wallet and fan points are read here rather than carried on the JWT: both
+   * change while a token is still valid, and a stale balance in the app is what
+   * lets a customer start a checkout they cannot afford.
+   *
+   * A missing wallet or fan-points row means "never used" and reads as zero;
+   * neither is created as a side effect of signing in.
+   */
+  async buildProfile(userId: string): Promise<AuthUserProfile> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { wallet: true, fanPoints: true, staffCredential: true },
+    });
+    if (!user) throw new UnauthorizedException('Account no longer exists');
+
+    return {
+      id: user.id,
+      name: user.name ?? 'IPL Dhaba Fan',
+      phone: user.phone,
+      favoriteTeam: user.favoriteTeam,
+      walletBalancePaise: user.wallet?.balancePaise ?? 0,
+      fanPoints: user.fanPoints?.balance ?? 0,
+      role: user.role,
+      dhabaId: user.dhabaId ?? null,
+      employeeId: user.employeeId ?? null,
+      isLoggedIn: true,
+      ...(user.staffCredential ? { mustChangePin: user.staffCredential.mustChangePin } : {}),
+      createdAt: user.createdAt.toISOString(),
+    };
+  }
+
+  /**
+   * Updates the two fields a customer owns about themselves.
+   *
+   * `UpdateProfileDto` is what makes this safe: role, wallet balance and fan
+   * points are not on it, so a spread of the request body cannot reach them.
+   * An empty patch is a no-op that still returns the profile, which keeps the
+   * caller's "save" button honest when nothing was actually edited.
+   */
+  async updateProfile(userId: string, dto: UpdateProfileDto): Promise<AuthUserProfile> {
+    const data: { name?: string; favoriteTeam?: string | null } = {};
+    if (dto.name !== undefined) data.name = dto.name.trim();
+    if (dto.favoriteTeam !== undefined) {
+      const team = dto.favoriteTeam.trim();
+      data.favoriteTeam = team.length > 0 ? team : null;
+    }
+
+    if (Object.keys(data).length > 0) {
+      await this.prisma.user.update({ where: { id: userId }, data });
+    }
+    return this.buildProfile(userId);
   }
 
   private async generateTokens(userId: string, phone: string, role: string = 'customer', dhabaId?: string | null) {

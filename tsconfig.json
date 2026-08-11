@@ -7,7 +7,11 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["vite/client", "node", "jest"],
+    // "test" is excluded below, so the `import '@testing-library/jest-dom'` in
+    // test/jest.setup.dom.ts — which is what registers `toBeInTheDocument` and
+    // friends on jest.Matchers — is never seen by tsc. Naming the package here
+    // loads that augmentation for the specs under src/ instead.
+    "types": ["vite/client", "node", "jest", "@testing-library/jest-dom"],
     "skipLibCheck": true,
     "esModuleInterop": true,
     "isolatedModules": true,

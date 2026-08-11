@@ -12,8 +12,20 @@ interface LoginPageViewProps {
 
 const IPL_TEAMS = ['RCB', 'CSK', 'MI', 'KKR', 'GT', 'SRH'];
 
+/** Firebase error codes are not customer-readable; these are. */
+const formatFirebaseError = (err: unknown): string => {
+  const raw = err as { message?: string; code?: string } | undefined;
+  const msg = raw?.message || raw?.code || String(err);
+  if (msg.includes('auth/invalid-phone-number')) return 'Invalid mobile number format. Please enter a 10-digit number.';
+  if (msg.includes('auth/too-many-requests')) return 'Too many SMS attempts. Please wait a few minutes before trying again.';
+  if (msg.includes('auth/quota-exceeded')) return 'SMS quota exceeded for today. Try again later.';
+  if (msg.includes('auth/invalid-verification-code')) return 'Invalid 6-digit OTP code entered.';
+  if (msg.includes('auth/code-expired')) return 'OTP code has expired. Please request a new OTP.';
+  return msg.replace('Firebase: ', '');
+};
+
 export const LoginPageView: React.FC<LoginPageViewProps> = ({ onBack, onLoginSuccess }) => {
-  const { updateUser, addNotification } = useApp();
+  const { onAuthenticated, addNotification } = useApp();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [team, setTeam] = useState('RCB');
@@ -45,26 +57,12 @@ export const LoginPageView: React.FC<LoginPageViewProps> = ({ onBack, onLoginSuc
       setStep('otp');
       setCooldown(30);
       addNotification('📱 Firebase SMS OTP Sent!', `OTP code dispatched to ${normalizedPhone} via Firebase Auth.`, 'wallet');
-    } catch (requestError: any) {
-      this_log_error(requestError);
+    } catch (requestError) {
+      console.error('Firebase Auth Error:', requestError);
       setError(formatFirebaseError(requestError));
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const formatFirebaseError = (err: any): string => {
-    const msg = err?.message || err?.code || String(err);
-    if (msg.includes('auth/invalid-phone-number')) return 'Invalid mobile number format. Please enter a 10-digit number.';
-    if (msg.includes('auth/too-many-requests')) return 'Too many SMS attempts. Please wait a few minutes before trying again.';
-    if (msg.includes('auth/quota-exceeded')) return 'SMS quota exceeded for today. Try again later.';
-    if (msg.includes('auth/invalid-verification-code')) return 'Invalid 6-digit OTP code entered.';
-    if (msg.includes('auth/code-expired')) return 'OTP code has expired. Please request a new OTP.';
-    return msg.replace('Firebase: ', '');
-  };
-
-  const this_log_error = (err: any) => {
-    console.error('Firebase Auth Error:', err);
   };
 
   const verifyOtp = async (event: React.FormEvent) => {
@@ -82,24 +80,20 @@ export const LoginPageView: React.FC<LoginPageViewProps> = ({ onBack, onLoginSuc
       // Step 2: Obtain cryptographically signed Firebase ID Token
       const idToken = await userCredential.user.getIdToken(/* forceRefresh */ true);
 
-      // Step 3: Send Firebase ID Token to IPL Dhaba NestJS Backend for validation & user creation
-      const result = await ApiClient.authenticateWithFirebase(idToken, name, team);
+      // Step 3: Exchange the Firebase ID token for an IPL Dhaba session.
+      // `authenticateWithFirebase` persists both tokens through `tokenStore`,
+      // so there is nothing to write to localStorage by hand here.
+      await ApiClient.authenticateWithFirebase(idToken, name, team);
 
-      localStorage.setItem('ipl_dhaba_jwt_token', result.accessToken);
-      localStorage.setItem('ipl_dhaba_refresh_token', result.refreshToken);
-
-      updateUser({
-        id: result.user.id,
-        name: result.user.name || name || 'IPL Dhaba Fan',
-        phone: result.user.phone || normalizedPhone,
-        favoriteTeam: result.user.favoriteTeam || team,
-        isLoggedIn: true,
-      });
+      // Loads the real profile and every collection, and reconnects the socket
+      // with the new token. Patching local user state instead would show a
+      // signed-in shell with nobody's data in it.
+      await onAuthenticated();
 
       addNotification('🎉 Signed In via Firebase Auth', 'Firebase identity verified & IPL Dhaba session active.', 'reward');
       onLoginSuccess();
-    } catch (verifyError: any) {
-      this_log_error(verifyError);
+    } catch (verifyError) {
+      console.error('Firebase Auth Error:', verifyError);
       setError(formatFirebaseError(verifyError));
     } finally {
       setIsLoading(false);

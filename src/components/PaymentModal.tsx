@@ -1,35 +1,101 @@
-import React, { useState } from 'react';
-import { ShieldCheck, CreditCard, Smartphone, Wallet, CheckCircle2, Lock, X } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { ShieldCheck, Smartphone, Wallet, Banknote, Lock, X, Loader2, AlertCircle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import type { PaymentMethod } from '../types';
+import { formatPaise } from '../types';
 
+/**
+ * Payment method selection.
+ *
+ * This modal no longer *takes* a payment — it chooses how one will be taken.
+ * The version it replaces ran `setTimeout(…, 1200)` under a "256-Bit Encrypted
+ * Payment Gateway" heading and then called `onPaymentSuccess`, so every order in
+ * the app was treated as paid without a rupee moving. Card and UPI now both mean
+ * "Razorpay", because Razorpay Checkout is what presents those options, and the
+ * app has no business collecting card details itself.
+ */
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  totalAmount?: number;
-  amount?: number;
-  onPaymentSuccess: (method?: string) => void;
+  /** The amount to be charged, in paise, as quoted by the server. */
+  amountPaise: number;
+  /** Current wallet balance in paise; used to disable the wallet option. */
+  walletBalancePaise: number;
+  /**
+   * Runs the real payment. Resolves when the server confirms; rejects with a
+   * message worth showing. The modal stays open and shows the error on failure.
+   */
+  onConfirm: (method: PaymentMethod) => Promise<void>;
+  /** Wallet and COD are unavailable for some flows; omit to allow all three. */
+  allowedMethods?: PaymentMethod[];
 }
+
+const METHOD_COPY: Record<PaymentMethod, { title: string; caption: string; badge: string }> = {
+  razorpay: {
+    title: 'UPI, Card or Netbanking',
+    caption: 'Secure checkout by Razorpay',
+    badge: 'INSTANT',
+  },
+  wallet: {
+    title: 'IPL Dhaba Wallet',
+    caption: 'Debited the moment the order is placed',
+    badge: 'FASTEST',
+  },
+  cod: {
+    title: 'Cash on Delivery / Pay at Turf',
+    caption: 'Pay the rider or at the counter',
+    badge: 'CASH',
+  },
+};
+
+const METHOD_ICON: Record<PaymentMethod, React.ComponentType<{ className?: string }>> = {
+  razorpay: Smartphone,
+  wallet: Wallet,
+  cod: Banknote,
+};
 
 export const PaymentModal: React.FC<PaymentModalProps> = ({
   isOpen,
   onClose,
-  totalAmount,
-  amount,
-  onPaymentSuccess,
+  amountPaise,
+  walletBalancePaise,
+  onConfirm,
+  allowedMethods = ['razorpay', 'wallet', 'cod'],
 }) => {
-  const displayAmount = totalAmount ?? amount ?? 0;
-  const [selectedMethod, setSelectedMethod] = useState<'gpay' | 'phonepe' | 'paytm' | 'card' | 'cod'>('gpay');
+  const walletCovers = walletBalancePaise >= amountPaise;
+
+  /**
+   * The default is the first method that can actually pay. Defaulting to the
+   * wallet when it is short of the total puts the customer one tap from a
+   * rejection they cannot see coming.
+   */
+  const defaultMethod = useMemo<PaymentMethod>(() => {
+    if (allowedMethods.includes('wallet') && walletCovers) return 'wallet';
+    if (allowedMethods.includes('razorpay')) return 'razorpay';
+    return allowedMethods[0] ?? 'cod';
+  }, [allowedMethods, walletCovers]);
+
+  const [selectedMethod, setSelectedMethod] = useState<PaymentMethod>(defaultMethod);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handlePay = () => {
+  const walletDisabled = selectedMethod === 'wallet' && !walletCovers;
+
+  const handlePay = async () => {
+    if (walletDisabled) return;
     setIsProcessing(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      await onConfirm(selectedMethod);
+    } catch (err) {
+      // The modal deliberately stays open: the customer needs to be able to pick
+      // a different method without rebuilding their cart.
+      setError(err instanceof Error ? err.message : 'The payment could not be completed.');
+    } finally {
       setIsProcessing(false);
-      onPaymentSuccess(selectedMethod.toUpperCase());
-      onClose();
-    }, 1200);
+    }
   };
 
   return (
@@ -46,121 +112,111 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
           exit={{ opacity: 0, scale: 0.95, y: 15 }}
           className="w-full max-w-sm bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-5 text-slate-900 dark:text-white space-y-4 shadow-2xl relative"
         >
-          {/* Close Button */}
           <button
             onClick={onClose}
-            aria-label="Close Checkout Modal"
-            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors"
+            disabled={isProcessing}
+            aria-label="Close checkout"
+            className="absolute top-4 right-4 w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 flex items-center justify-center hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors disabled:opacity-50"
           >
             <X className="w-4 h-4" />
           </button>
 
-          {/* Header */}
           <div className="flex items-center gap-3 border-b border-slate-100 dark:border-slate-800 pb-3.5">
             <div className="w-10 h-10 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">Razorpay Secure Checkout</h3>
-              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">256-Bit Encrypted Payment Gateway</p>
+              <h3 id="payment-modal-title" className="font-extrabold text-sm text-slate-900 dark:text-white">
+                Choose how to pay
+              </h3>
+              <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">
+                Card and UPI are handled by Razorpay
+              </p>
             </div>
           </div>
 
-          {/* Payable Amount Banner */}
           <div className="bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200/80 dark:border-emerald-800 p-3.5 rounded-2xl flex justify-between items-center text-xs">
-            <span className="text-slate-700 dark:text-slate-200 font-bold">Total Amount Payable:</span>
-            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">₹{displayAmount}</span>
+            <span className="text-slate-700 dark:text-slate-200 font-bold">Total payable</span>
+            <span className="text-xl font-black text-emerald-600 dark:text-emerald-400">
+              {formatPaise(amountPaise)}
+            </span>
           </div>
 
-          {/* Payment Methods Options */}
           <div className="space-y-2 text-xs">
-            <span className="font-extrabold text-slate-900 dark:text-white block uppercase tracking-wider text-[11px]">Select Payment Method</span>
+            <span className="font-extrabold text-slate-900 dark:text-white block uppercase tracking-wider text-[11px]">
+              Payment method
+            </span>
 
-            {/* Google Pay / UPI */}
-            <button
-              onClick={() => setSelectedMethod('gpay')}
-              className={`w-full p-3 rounded-2xl border flex items-center justify-between transition-all ${
-                selectedMethod === 'gpay'
-                  ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm font-bold scale-[1.01]'
-                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Smartphone className={`w-4 h-4 ${selectedMethod === 'gpay' ? 'text-white' : 'text-emerald-500'}`} />
-                <span>Google Pay / UPI</span>
-              </div>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${selectedMethod === 'gpay' ? 'bg-white/20 text-white' : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'}`}>
-                INSTANT
-              </span>
-            </button>
+            {allowedMethods.map((method) => {
+              const Icon = METHOD_ICON[method];
+              const copy = METHOD_COPY[method];
+              const isSelected = selectedMethod === method;
+              const isShort = method === 'wallet' && !walletCovers;
 
-            {/* PhonePe / Paytm */}
-            <button
-              onClick={() => setSelectedMethod('phonepe')}
-              className={`w-full p-3 rounded-2xl border flex items-center justify-between transition-all ${
-                selectedMethod === 'phonepe'
-                  ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm font-bold scale-[1.01]'
-                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Smartphone className={`w-4 h-4 ${selectedMethod === 'phonepe' ? 'text-white' : 'text-purple-500'}`} />
-                <span>PhonePe / Paytm</span>
-              </div>
-              <span className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold ${selectedMethod === 'phonepe' ? 'bg-white/20 text-white' : 'bg-purple-100 dark:bg-purple-950 text-purple-600 dark:text-purple-400'}`}>
-                UPI
-              </span>
-            </button>
-
-            {/* Credit / Debit Card */}
-            <button
-              onClick={() => setSelectedMethod('card')}
-              className={`w-full p-3 rounded-2xl border flex items-center justify-between transition-all ${
-                selectedMethod === 'card'
-                  ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm font-bold scale-[1.01]'
-                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <CreditCard className={`w-4 h-4 ${selectedMethod === 'card' ? 'text-white' : 'text-blue-500'}`} />
-                <span>Credit / Debit Card</span>
-              </div>
-              <span className={`text-[10px] font-mono ${selectedMethod === 'card' ? 'text-white/90' : 'text-slate-400'}`}>
-                VISA / Mastercard
-              </span>
-            </button>
-
-            {/* Cash on Delivery / Pay at Turf */}
-            <button
-              onClick={() => setSelectedMethod('cod')}
-              className={`w-full p-3 rounded-2xl border flex items-center justify-between transition-all ${
-                selectedMethod === 'cod'
-                  ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm font-bold scale-[1.01]'
-                  : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <Wallet className={`w-4 h-4 ${selectedMethod === 'cod' ? 'text-white' : 'text-amber-500'}`} />
-                <span>Pay at Turf / Cash on Delivery</span>
-              </div>
-              <span className={`text-[10px] font-bold ${selectedMethod === 'cod' ? 'text-white' : 'text-amber-500'}`}>
-                CASH
-              </span>
-            </button>
+              return (
+                <button
+                  key={method}
+                  onClick={() => setSelectedMethod(method)}
+                  disabled={isProcessing}
+                  className={`w-full p-3 rounded-2xl border flex items-center justify-between transition-all text-left disabled:opacity-60 ${
+                    isSelected
+                      ? 'bg-emerald-500 text-white border-emerald-500 shadow-green-sm font-bold'
+                      : 'bg-slate-50 dark:bg-slate-800/80 border-slate-200 dark:border-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'
+                  }`}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Icon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-emerald-500'}`} />
+                    <div>
+                      <div>{copy.title}</div>
+                      <div className={`text-[10px] font-medium ${isSelected ? 'text-white/80' : 'text-slate-500 dark:text-slate-400'}`}>
+                        {method === 'wallet'
+                          ? `Balance ${formatPaise(walletBalancePaise)}${isShort ? ' — not enough' : ''}`
+                          : copy.caption}
+                      </div>
+                    </div>
+                  </div>
+                  <span
+                    className={`text-[10px] px-2 py-0.5 rounded-full font-extrabold shrink-0 ${
+                      isSelected
+                        ? 'bg-white/20 text-white'
+                        : 'bg-emerald-100 dark:bg-emerald-950 text-emerald-600 dark:text-emerald-400'
+                    }`}
+                  >
+                    {copy.badge}
+                  </span>
+                </button>
+              );
+            })}
           </div>
 
-          {/* Secure Pay Button */}
+          {error && (
+            <p
+              role="alert"
+              className="text-[11px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/40 rounded-xl px-3 py-2 flex items-start gap-1.5"
+            >
+              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              {error}
+            </p>
+          )}
+
           <button
-            onClick={handlePay}
-            disabled={isProcessing}
-            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3.5 rounded-full text-xs flex items-center justify-center gap-2 shadow-green-sm active:scale-95 transition-all mt-2"
+            onClick={() => void handlePay()}
+            disabled={isProcessing || walletDisabled}
+            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-extrabold py-3.5 rounded-full text-xs flex items-center justify-center gap-2 shadow-green-sm active:scale-95 transition-all mt-2 disabled:opacity-60 disabled:cursor-not-allowed disabled:active:scale-100"
           >
             {isProcessing ? (
-              <span>Authorizing Payment...</span>
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>{selectedMethod === 'razorpay' ? 'Opening Razorpay…' : 'Placing your order…'}</span>
+              </>
             ) : (
               <>
                 <Lock className="w-4 h-4" />
-                <span>Pay ₹{displayAmount} Securely</span>
+                <span>
+                  {selectedMethod === 'cod'
+                    ? `Place order · ${formatPaise(amountPaise)} on delivery`
+                    : `Pay ${formatPaise(amountPaise)}`}
+                </span>
               </>
             )}
           </button>

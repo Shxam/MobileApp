@@ -20,7 +20,6 @@ export interface UserProfile {
   id: string;
   name: string;
   phone: string;
-  email?: string | null;
   favoriteTeam?: string | null;
   /** Wallet balance in paise. */
   walletBalancePaise: number;
@@ -80,7 +79,12 @@ export interface Turf {
   amenities: string[];
   pitchType: 'AstroTurf Box' | 'Natural Grass' | 'Floodlit Pro Cage' | 'Indoor Nets';
   address: string;
-  coordinates: { lat: number; lng: number };
+  /**
+   * Null when the turf row has no lat/lng. The map declines to place a pin it
+   * does not have rather than dropping one at (0, 0) in the Gulf of Guinea —
+   * `turfs.service.ts` returns null for exactly this reason.
+   */
+  coordinates: { lat: number; lng: number } | null;
   description: string;
   dhabaId?: string;
 }
@@ -365,7 +369,20 @@ export interface FanReward {
 
 // ─── Notifications ──────────────────────────────────
 
-export type NotificationType = 'booking' | 'food' | 'wallet' | 'reward' | 'system' | 'driver';
+/**
+ * The kinds the server writes to the `notifications` table. Anything persisted
+ * and re-fetched is one of these — see `notifications.service.ts`.
+ */
+export type ServerNotificationType = 'order' | 'booking' | 'payment' | 'wallet' | 'general';
+
+/**
+ * Server kinds plus the client-only ones.
+ *
+ * The extra four exist for toasts that are genuinely local and never persisted —
+ * "added to cart", "voucher applied", "copied to clipboard". They are UI events,
+ * not records, so the server has no opinion about them and never returns one.
+ */
+export type NotificationType = ServerNotificationType | 'food' | 'reward' | 'system' | 'driver';
 
 export interface AppNotification {
   id: string;
@@ -388,6 +405,68 @@ export interface Review {
   rating: number;
   comment: string;
   createdAt: string;
+}
+
+// ─── Saved addresses ────────────────────────────────
+
+/**
+ * A delivery address the customer saved for reuse.
+ *
+ * Orders keep their own `deliveryAddress` string snapshot, so editing one of
+ * these never rewrites where an already-delivered order was sent.
+ */
+export interface SavedAddress {
+  id: string;
+  label: string;
+  detail: string;
+  landmark: string | null;
+  pincode: string | null;
+  isDefault: boolean;
+  createdAt: string;
+}
+
+// ─── Vouchers ───────────────────────────────────────
+
+/** An offer the signed-in customer can still redeem. */
+export interface AvailableVoucher {
+  code: string;
+  description: string;
+  /** `'percent'` or `'flat'`. */
+  discountType: string;
+  /** Percentage points when `percent`; paise when `flat`. */
+  discountValue: number;
+  maxDiscountPaise: number | null;
+  minSubtotalPaise: number;
+  perUserLimit: number;
+  remainingForUser: number;
+}
+
+// ─── Live cricket ───────────────────────────────────
+
+/**
+ * One card in the live-score carousel, exactly as `GET /cricket/live-scores`
+ * returns it.
+ *
+ * The backend does the shaping — CricAPI's raw innings arrays are turned into
+ * display strings server-side, once, rather than in every client. The frontend
+ * previously declared its own unrelated `LiveMatch` for this endpoint, so the
+ * response never matched the state it was assigned to.
+ */
+export interface LiveMatchItem {
+  id: string;
+  matchTitle: string;
+  series: string;
+  team1: { name: string; code: string; score: string; overs: string; flagBg: string };
+  team2: { name: string; code: string; score: string; overs: string; flagBg: string };
+  statusText: string;
+  isLive: boolean;
+  scorecardDetails?: {
+    team1Batter: string;
+    team1Bowler: string;
+    target?: string;
+    crr: string;
+    rrr?: string;
+  };
 }
 
 // ─── Driver / Dispatch ──────────────────────────────

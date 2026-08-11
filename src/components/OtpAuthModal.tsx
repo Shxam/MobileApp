@@ -16,12 +16,12 @@ const IPL_TEAMS = [
 ];
 
 export const OtpAuthModal: React.FC = () => {
-  const { isAuthModalOpen, setIsAuthModalOpen, updateUser, addNotification } = useApp();
+  const { isAuthModalOpen, setIsAuthModalOpen, onAuthenticated, addNotification } = useApp();
   const [step, setStep] = useState<'phone' | 'otp' | 'success'>('phone');
-  const [phone, setPhone] = useState('9876543210');
+  const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState(['', '', '', '', '', '']);
   const [selectedTeam, setSelectedTeam] = useState('RCB');
-  const [name, setName] = useState('Rahul Sharma');
+  const [name, setName] = useState('');
   const [timer, setTimer] = useState(30);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -89,23 +89,19 @@ export const OtpAuthModal: React.FC = () => {
       // Step 2: Get Firebase ID token
       const idToken = await userCredential.user.getIdToken(/* forceRefresh */ true);
 
-      // Step 3: Verify token with backend
-      const result = await ApiClient.authenticateWithFirebase(idToken, name, selectedTeam);
-
-      localStorage.setItem('ipl_dhaba_jwt_token', result.accessToken);
-      localStorage.setItem('ipl_dhaba_refresh_token', result.refreshToken);
+      // Step 3: exchange it for an IPL Dhaba session. `authenticateWithFirebase`
+      // persists both tokens through `tokenStore`, so there is nothing to write
+      // to localStorage by hand here.
+      const teamObj = IPL_TEAMS.find((t) => t.code === selectedTeam);
+      await ApiClient.authenticateWithFirebase(idToken, name, teamObj?.name ?? selectedTeam);
 
       setIsVerifying(false);
       setStep('success');
 
-      const teamObj = IPL_TEAMS.find((t) => t.code === selectedTeam);
-      updateUser({
-        id: result.user.id,
-        name: result.user.name || name,
-        phone: result.user.phone || `+91 ${phone}`,
-        favoriteTeam: teamObj ? teamObj.name : 'Royal Challengers Bengaluru',
-        isLoggedIn: true,
-      });
+      // Loads the real profile, orders, bookings, wallet and notifications, and
+      // reconnects the socket with the new token. Patching local user state
+      // instead would show a signed-in shell with nobody's data in it.
+      await onAuthenticated();
 
       addNotification('🎉 Welcome Fan!', 'Firebase Identity verified & Session locked in!', 'reward');
 

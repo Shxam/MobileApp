@@ -3,7 +3,13 @@
 // Server & Client input validation helpers
 // ===================================================
 
-import { FoodOrder, TurfBooking, CelebrationBooking, OrderStatus } from '../types';
+import {
+  FoodOrder,
+  TurfBooking,
+  CelebrationBooking,
+  OrderStatus,
+  TERMINAL_ORDER_STATUSES,
+} from '../types';
 
 export interface ValidationResult {
   valid: boolean;
@@ -30,7 +36,8 @@ export class Validator {
     if (order.items) {
       for (let i = 0; i < order.items.length; i++) {
         const item = order.items[i];
-        if (!item.menuItem || !item.menuItem.id || item.menuItem.price <= 0) {
+        // `pricePaise`, not `price`: money is integer paise everywhere.
+        if (!item.menuItem || !item.menuItem.id || item.menuItem.pricePaise <= 0) {
           errors.push(`Item at position ${i + 1} is invalid`);
         }
         if (!item.quantity || item.quantity <= 0 || !Number.isInteger(item.quantity)) {
@@ -39,7 +46,12 @@ export class Validator {
       }
     }
 
-    if (!order.deliveryType || !['turf_slot', 'home_delivery'].includes(order.deliveryType)) {
+    // `turf_bench` was missing, so a bench order failed a check the server
+    // accepts.
+    if (
+      !order.deliveryType ||
+      !['turf_slot', 'turf_bench', 'home_delivery'].includes(order.deliveryType)
+    ) {
       errors.push('Invalid delivery type specified');
     }
 
@@ -47,7 +59,9 @@ export class Validator {
       errors.push('Delivery location target is required');
     }
 
-    if (!order.paymentMethod || !['wallet', 'upi', 'card'].includes(order.paymentMethod)) {
+    // The real methods are razorpay / cod / wallet. `upi` and `card` were never
+    // payment methods in this system — they are Razorpay instruments.
+    if (!order.paymentMethod || !['razorpay', 'cod', 'wallet'].includes(order.paymentMethod)) {
       errors.push('Invalid payment method specified');
     }
 
@@ -72,7 +86,8 @@ export class Validator {
       errors.push('At least one turf slot must be selected');
     }
 
-    if (booking.totalAmount === undefined || booking.totalAmount < 0) {
+    // Integer paise, like every other money field.
+    if (booking.totalAmountPaise === undefined || booking.totalAmountPaise < 0) {
       errors.push('Total amount must be greater than or equal to 0');
     }
 
@@ -95,15 +110,42 @@ export class Validator {
     };
   }
 
-  public static isValidOrderStatusTransition(current: OrderStatus, target: OrderStatus): boolean {
-    const validTransitions: Record<OrderStatus, OrderStatus[]> = {
-      placed: ['preparing', 'cancelled'],
-      preparing: ['out_for_delivery', 'cancelled'],
-      out_for_delivery: ['delivered', 'cancelled'],
-      delivered: [],
-      cancelled: [],
-    };
+  /**
+   * Mirror of `ORDER_TRANSITIONS` in
+   * `apps/backend/src/modules/orders/order-state-machine.ts`, which is the
+   * authoritative table — the server rejects anything this map would allow but
+   * that one does not.
+   *
+   * The previous version listed only 5 of the 12 statuses, so every status the
+   * real lifecycle added (`awaiting_payment`, `accepted`, `ready_for_pickup`,
+   * `assigned`, `picked_up`, `refunded`, `payment_failed`) fell through to
+   * `false` and a legitimate transition read as invalid.
+   */
+  private static readonly TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
+    awaiting_payment: ['placed', 'payment_failed', 'cancelled'],
+    placed: ['accepted', 'cancelled', 'refunded'],
+    accepted: ['preparing', 'cancelled'],
+    preparing: ['ready_for_pickup', 'cancelled'],
+    ready_for_pickup: ['assigned', 'cancelled'],
+    assigned: ['picked_up', 'ready_for_pickup', 'cancelled'],
+    // `out_for_delivery` is a legacy alias of `picked_up`; both reach delivered.
+    picked_up: ['delivered', 'out_for_delivery'],
+    out_for_delivery: ['delivered'],
+    delivered: ['refunded'],
+    cancelled: ['refunded'],
+    refunded: [],
+    payment_failed: ['awaiting_payment', 'cancelled'],
+  };
 
-    return validTransitions[current]?.includes(target) ?? false;
+  public static isValidOrderStatusTransition(current: OrderStatus, target: OrderStatus): boolean {
+    return Validator.TRANSITIONS[current]?.includes(target) ?? false;
+  }
+
+  /**
+   * Whether an order has stopped moving forward. A refund can still be issued
+   * against a terminal order, so this is not the same as "no transitions left".
+   */
+  public static isTerminalOrderStatus(status: OrderStatus): boolean {
+    return TERMINAL_ORDER_STATUSES.includes(status);
   }
 }

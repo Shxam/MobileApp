@@ -11,6 +11,7 @@ import { OrderStatus, PaymentMethod, PaymentStatus, Prisma, Role } from '@prisma
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EventBusService } from '../../common/event-bus/event-bus.service';
 import { PricingService, type DeliveryType } from '../pricing/pricing.service';
+import { FOOD_GST_RATE } from '../pricing/pricing.constants';
 import { VouchersService } from '../pricing/vouchers.service';
 import { WalletService } from '../wallet/wallet.service';
 import { env } from '../../common/config/env';
@@ -390,6 +391,11 @@ export class OrdersService {
       isTerminal: isTerminal(order.status),
       bill: {
         subtotalPaise: order.subtotalPaise,
+        // `BillBreakdown` requires the rate, not just the amount: the bill screen
+        // prints "GST (5%)" and cannot recover the rate from the amount once a
+        // discount has moved the total. Food is always 5% — the same constant
+        // `PricingService` charged with.
+        gstRate: FOOD_GST_RATE,
         gstAmountPaise: order.gstAmountPaise,
         deliveryFeePaise: order.deliveryFeePaise,
         discountPaise: order.discountPaise,

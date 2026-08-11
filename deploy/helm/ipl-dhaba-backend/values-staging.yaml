@@ -16,11 +16,47 @@ ingress:
         - staging-api.ipldhaba.com
 
 env:
-  NODE_ENV: "staging"
+  # Deliberately "production", not "staging". `common/config/env.ts` validates
+  # NODE_ENV against development|test|production and aborts boot on anything
+  # else, so the previous "staging" value would have crash-looped the whole
+  # environment. Running staging in production mode is also what makes it a
+  # useful rehearsal: it exercises the same strict secret and CORS validation
+  # the real deploy will hit, against staging's own credentials.
+  NODE_ENV: "production"
+  CORS_ORIGINS: "https://staging.ipldhaba.com,http://localhost:3000"
+  APP_URL: "https://staging.ipldhaba.com"
 
+# Staging reads the same env var names from a different path in the store — the
+# five values here used to be inline strings, including a Neon connection string
+# and both JWT signing keys. Only the `key:` prefix differs from values.yaml;
+# every other setting is inherited.
 secrets:
-  databaseUrl: "postgresql://ipldhaba_staging_owner:STAGING_PASS@ep-staging-branch-123456.ap-southeast-1.aws.neon.tech/ipldhaba_staging?sslmode=require"
-  redisPassword: "STAGING_REDIS_SECRET_PASSWORD"
-  jwtSecret: "staging-jwt-secret-key-ipl-dhaba-2026"
-  jwtRefreshSecret: "staging-refresh-secret-key-ipl-dhaba-2026"
-  gatePassSecret: "staging-gatepass-secret-2026"
+  externalSecret:
+    mapping:
+      DATABASE_URL:
+        key: ipldhaba/staging/database
+        property: url
+      REDIS_PASSWORD:
+        key: ipldhaba/staging/redis
+        property: password
+      JWT_SECRET:
+        key: ipldhaba/staging/jwt
+        property: accessSecret
+      JWT_REFRESH_SECRET:
+        key: ipldhaba/staging/jwt
+        property: refreshSecret
+      GATE_PASS_SECRET:
+        key: ipldhaba/staging/jwt
+        property: gatePassSecret
+      RAZORPAY_KEY_ID:
+        key: ipldhaba/staging/razorpay
+        property: keyId
+      RAZORPAY_KEY_SECRET:
+        key: ipldhaba/staging/razorpay
+        property: keySecret
+      RAZORPAY_WEBHOOK_SECRET:
+        key: ipldhaba/staging/razorpay
+        property: webhookSecret
+      ALERT_WEBHOOK_URL:
+        key: ipldhaba/staging/alerting
+        property: slackWebhookUrl

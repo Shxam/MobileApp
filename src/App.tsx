@@ -18,6 +18,7 @@ import { TurfBookingView } from './views/TurfBookingView';
 import { FoodDhabaView } from './views/FoodDhabaView';
 import { CelebrationsView } from './views/CelebrationsView';
 import { MyBookingsView } from './views/MyBookingsView';
+import { WalletView } from './views/WalletView';
 
 function MainApp() {
   const { theme, user } = useApp();
@@ -109,6 +110,8 @@ function MainApp() {
               )}
 
               {activeTab === 'hub' && <MyBookingsView />}
+
+              {activeTab === 'wallet' && <WalletView />}
             </motion.div>
           </AnimatePresence>
         </main>

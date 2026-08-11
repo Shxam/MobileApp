@@ -1,5 +1,6 @@
 import { PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
+import { SEED_MENU_ITEMS } from './seed-data/menu';
 
 /**
  * Seeds a database with the reference dhaba's menu, turf, packages and vouchers.
@@ -59,102 +60,176 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     console.log('   • Skipping staff accounts: set SEED_STAFF_PIN to create them.');
   }
 
-  // 3. Menu
-  const menuItems = [
-    {
-      name: 'Stadium Special Dum Biryani',
-      description: 'Hyderabadi spiced slow-cooked basmati rice with marinated tender pieces',
-      pricePaise: 349_00,
-      category: 'Biryani',
-      image: 'https://cdn.ipldhaba.com/menu/biryani.jpg',
-      isVeg: false,
-      rating: 4.9,
-    },
-    {
-      name: 'Matchday Paneer Butter Masala',
-      description: 'Fresh cottage cheese cubes in rich creamy tomato gravy',
-      pricePaise: 279_00,
-      category: 'Curries',
-      image: 'https://cdn.ipldhaba.com/menu/paneer.jpg',
-      isVeg: true,
-      rating: 4.8,
-    },
-    {
-      name: 'Floodlit Tandoori Roti Basket',
-      description: 'Assorted whole-wheat rotis cooked in clay oven with butter',
-      pricePaise: 99_00,
-      category: 'Breads',
-      image: 'https://cdn.ipldhaba.com/menu/roti.jpg',
-      isVeg: true,
-      rating: 4.7,
-    },
-  ];
+  // 3. Menu — the dhaba's real card, from prisma/seed-data/menu.ts.
+  //
+  // The three rows this replaced pointed their images at `cdn.ipldhaba.com`, a
+  // host that does not resolve, so every dish tile rendered a broken image. The
+  // real menu and its photographs were sitting in the frontend mock module the
+  // whole time; they now live in Postgres where the pricing service can read
+  // them.
+  //
+  // Names are matched rather than ids because `name` is not unique in the schema
+  // (two dhabas may both sell biryani). One read plus a batch insert keeps this
+  // to a handful of round-trips instead of one per dish — it runs in the Jest
+  // global setup, so 76 sequential queries against Neon would be felt on every
+  // test run.
+  const existingItems = await prisma.menuItem.findMany({
+    where: { dhabaId },
+    select: { id: true, name: true },
+  });
+  const itemIdByName = new Map(existingItems.map((row) => [row.name, row.id]));
 
-  for (const item of menuItems) {
-    // Upsert on name so re-running the seed does not duplicate the menu.
-    const existing = await prisma.menuItem.findFirst({ where: { name: item.name, dhabaId } });
-    if (existing) await prisma.menuItem.update({ where: { id: existing.id }, data: { ...item, dhabaId } });
-    else await prisma.menuItem.create({ data: { ...item, dhabaId } });
+  const newItems = SEED_MENU_ITEMS.filter((item) => !itemIdByName.has(item.name));
+  if (newItems.length > 0) {
+    await prisma.menuItem.createMany({ data: newItems.map((item) => ({ ...item, dhabaId })) });
   }
+  await Promise.all(
+    SEED_MENU_ITEMS.filter((item) => itemIdByName.has(item.name)).map((item) =>
+      prisma.menuItem.update({ where: { id: itemIdByName.get(item.name) }, data: { ...item, dhabaId } }),
+    ),
+  );
+  console.log(`   • ${SEED_MENU_ITEMS.length} menu items (${newItems.length} new).`);
 
   // 4. Turf + slots
-  const turfName = 'Stadium Box Turf';
+  //
+  // Coordinates, amenities and the pitch description are the real ones from the
+  // Singarayakonda ground — `LiveTrackingMap` and the turf detail sheet both read
+  // them, and a null latitude leaves the map centred on the dhaba fallback.
+  // `image`/`gallery` stay empty: the only pictures the old mock had were
+  // Unsplash stock photos of somebody else's pitch, and both views already skip
+  // the hero when there is nothing real to show.
+  const turfName = 'IPL Dhaba Box Turf — Singarayakonda';
+  const turfData = {
+    name: turfName,
+    location: 'NH-16, Singarayakonda, Prakasam Dist',
+    area: 'Singarayakonda',
+    address: 'NH-16 Bypass Road, Next to IPL Dhaba Kitchen, Singarayakonda, Andhra Pradesh',
+    latitude: 15.25,
+    longitude: 80.03,
+    pricePerHourPaise: 1200_00,
+    pitchType: 'Floodlit Pro Cage',
+    amenities: [
+      'Floodlights 500 Lux',
+      'Dhaba Dining Deck',
+      'Live Scoring Screen',
+      'Dressing Room AC',
+      'Free Parking',
+      'Equipment Rental',
+    ],
+    description:
+      'Singarayakonda’s floodlit box-cricket turf, attached to the dhaba kitchen — order biryani and starters straight to your team bench between innings.',
+    rating: 4.9,
+    reviewsCount: 512,
+  };
+
   let turf = await prisma.turf.findFirst({ where: { name: turfName, dhabaId } });
-  if (!turf) {
-    turf = await prisma.turf.create({
-      data: {
-        name: turfName,
-        location: 'Singarayakonda',
-        area: 'NH-16 Service Road',
-        address: 'IPL Dhaba, NH-16, Singarayakonda, Andhra Pradesh',
-        pricePerHourPaise: 1200_00,
-        pitchType: 'AstroTurf Box',
-        amenities: ['Floodlights', 'Changing Room', 'Parking', 'Drinking Water'],
-        description: 'Full-size floodlit box cricket turf next to the dhaba.',
-        dhabaId,
-      },
-    });
+  if (turf) {
+    turf = await prisma.turf.update({ where: { id: turf.id }, data: turfData });
+  } else {
+    turf = await prisma.turf.create({ data: { ...turfData, dhabaId } });
   }
 
-  const now = new Date();
-  const slots = [
-    { pitchName: 'Stadium Box Pitch A', offsetHours: 1, pricePaise: 1200_00, category: 'Floodlit Night', isFloodlit: true },
-    { pitchName: 'Stadium Box Pitch B', offsetHours: 2, pricePaise: 1500_00, category: 'Late Night T10', isFloodlit: true },
-  ];
-  for (const slot of slots) {
-    const startTime = new Date(now.getTime() + slot.offsetHours * 3600_000);
-    const endTime = new Date(startTime.getTime() + 3600_000);
-    const existing = await prisma.turfSlot.findFirst({ where: { turfId: turf.id, startTime } });
-    if (!existing) {
-      await prisma.turfSlot.create({
-        data: {
+  // A week of bookable hours across both pitches, rather than the two
+  // now-plus-an-hour slots this replaced. The booking grid groups by day, so a
+  // pair of slots left it with a single column and nothing to page through, and
+  // both were in the past within two hours of seeding.
+  //
+  // Rates follow the counter: daylight hours are the base rate and the floodlit
+  // evening slots carry the premium.
+  const PITCHES = ['Pitch A', 'Pitch B'];
+  const OPEN_HOUR = 15; // 3 PM — earlier hours are too hot to play here.
+  const CLOSE_HOUR = 23;
+  const FLOODLIT_FROM = 18;
+
+  // Midnight today, so a re-seed on the same day lands on identical timestamps
+  // and the `findFirst` below recognises the slots it already wrote.
+  const dayZero = new Date();
+  dayZero.setHours(0, 0, 0, 0);
+
+  const slotRows: Array<{
+    turfId: string;
+    pitchName: string;
+    startTime: Date;
+    endTime: Date;
+    pricePaise: number;
+    category: string;
+    isFloodlit: boolean;
+  }> = [];
+
+  for (let day = 0; day < 7; day += 1) {
+    for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour += 1) {
+      for (const pitch of PITCHES) {
+        const startTime = new Date(dayZero);
+        startTime.setDate(startTime.getDate() + day);
+        startTime.setHours(hour, 0, 0, 0);
+        // A slot that has already started cannot be booked; skip rather than
+        // seed rows the availability query will filter out anyway.
+        if (startTime.getTime() <= Date.now()) continue;
+
+        const isFloodlit = hour >= FLOODLIT_FROM;
+        slotRows.push({
           turfId: turf.id,
-          pitchName: slot.pitchName,
+          pitchName: `${turfName} ${pitch}`,
           startTime,
-          endTime,
-          pricePaise: slot.pricePaise,
-          category: slot.category,
-          isFloodlit: slot.isFloodlit,
-        },
-      });
+          endTime: new Date(startTime.getTime() + 3600_000),
+          pricePaise: isFloodlit ? 1500_00 : 1200_00,
+          category: isFloodlit ? 'Floodlit Night' : 'Daylight Hour',
+          isFloodlit,
+        });
+      }
     }
   }
 
-  // 5. Celebration packages — these were frontend mock constants.
+  // One read of what is already there beats a findFirst per slot: this runs in
+  // the Jest global setup, and ~90 sequential round-trips to Neon is seconds of
+  // every test run.
+  const existingSlots = await prisma.turfSlot.findMany({
+    where: { turfId: turf.id, startTime: { gte: dayZero } },
+    select: { pitchName: true, startTime: true },
+  });
+  const seenSlots = new Set(existingSlots.map((s) => `${s.pitchName}@${s.startTime.toISOString()}`));
+  const freshSlots = slotRows.filter((s) => !seenSlots.has(`${s.pitchName}@${s.startTime.toISOString()}`));
+  if (freshSlots.length > 0) {
+    await prisma.turfSlot.createMany({ data: freshSlots });
+  }
+  console.log(`   • ${slotRows.length} turf slots over 7 days (${freshSlots.length} new).`);
+
+  // 5. Celebration packages — the dhaba's real party package, bilingual.
+  //
+  // The two rows this replaced ('Match Day Birthday Bash', 'Team Victory Party')
+  // were invented during the rebuild: English-only, with prices and inclusions
+  // nobody at the counter had agreed to. The genuine package — the one the
+  // Hindi/English toggle in CelebrationsView was written for — was in the frontend
+  // mock module, so it moves here alongside the menu.
+  //
+  // `image` stays empty: the mock's only picture was an Unsplash stock photo of
+  // someone else's party.
   const packages = [
     {
-      title: 'Match Day Birthday Bash',
-      subtitle: 'Cake, decorations and a stadium-side table',
-      basePricePaise: 4999_00,
-      inclusions: ['1kg cake', 'Balloon decor', 'Reserved bench', 'Dedicated server'],
-      recommendedFor: 'Birthdays',
-    },
-    {
-      title: 'Team Victory Party',
-      subtitle: 'Post-match feast for the whole squad',
-      basePricePaise: 8999_00,
-      inclusions: ['Unlimited biryani', 'Team banner', 'Trophy photo corner', 'Turf hour included'],
-      recommendedFor: 'Teams of 12+',
+      title: 'Grand Indian Style Turf Party Bash',
+      titleHi: 'ग्रैंड इंडियन स्टाइल टर्फ पार्टी बैश',
+      subtitle:
+        'Ultimate Indian Party Celebration: Floodlit Box Turf Match + Unlimited Dhaba Feast & Live DJ',
+      subtitleHi: 'शानदार भारतीय पार्टी उत्सव: फ्लडलाइट टर्फ मैच + असीमित ढाबा दावत और डीजे',
+      basePricePaise: 5999_00,
+      recommendedFor: '15 - 30 Guests & Players',
+      rating: 4.9,
+      inclusions: [
+        '2 Hours Reserved Floodlit Box Turf Match at Singarayakonda',
+        'Grand Festive Indian Party Decor & LED Scoreboard Banner',
+        'Unlimited Hot Dhaba Starters, Biryani Handi & Chilled Lassi',
+        'Live DJ Setup with Commentary Mic & Match Music',
+        'Custom Champions Trophy & Player Medals Ceremony',
+        'Special Cake Cutting Setup & Photo Booth Backdrop',
+      ],
+      inclusionsHi: [
+        'सिंगरायाकोंडा में 2 घंटे आरक्षित फ्लडलाइट बॉक्स टर्फ',
+        'भव्य भारतीय पार्टी सजावट और एलईडी बैनर',
+        'असीमित ढाबा स्टार्टर्स, बिरयानी और ठंडी लस्सी',
+        'लाइव डीजे और कमेंट्री साउंड सेटअप',
+        'विजेता ट्रॉफी और खिलाड़ी पदक समारोह',
+        'विशेष केक कटिंग सेटअप और फोटो बूथ',
+      ],
     },
   ];
   for (const pkg of packages) {
@@ -162,6 +237,17 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     if (existing) await prisma.celebrationPackage.update({ where: { id: existing.id }, data: { ...pkg, dhabaId } });
     else await prisma.celebrationPackage.create({ data: { ...pkg, dhabaId } });
   }
+
+  // Retire the two invented packages on any database that already has them.
+  // Deactivated rather than deleted: `CelebrationBooking.packageId` is a foreign
+  // key, so a dev database with a test booking against one would fail the delete —
+  // and a sold party should keep pointing at what was sold. `isActive: false` is
+  // what the customer listing filters on.
+  const retired = await prisma.celebrationPackage.updateMany({
+    where: { dhabaId, title: { in: ['Match Day Birthday Bash', 'Team Victory Party'] } },
+    data: { isActive: false },
+  });
+  console.log(`   • ${packages.length} celebration package(s) (${retired.count} placeholder(s) retired).`);
 
   // 6. Vouchers — previously hardcoded in the frontend pricing engine, where the
   // browser decided its own discount.

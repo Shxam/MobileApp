@@ -1,21 +1,17 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { MOCK_TURFS, MOCK_MENU, MOCK_CELEBRATION_PACKAGES } from '../data/mockData';
+import { formatPaise, type MenuItem, type Turf } from '../types';
+import { ApiClient } from '../services/apiClient';
 import { CricketScoreCarousel } from '../components/CricketScoreCarousel';
 import {
   Calendar,
-  UtensilsCrossed,
-  PartyPopper,
   Star,
   ChevronRight,
-  Flame,
   Plus,
   Clock,
-  Award,
   Search,
   SlidersHorizontal,
-  MapPin,
-  Sparkles,
+  Loader2,
   ShoppingBag,
 } from 'lucide-react';
 import { AnimatePresence, motion } from 'framer-motion';
@@ -25,12 +21,79 @@ interface HomeViewProps {
   onSelectTurf: (turfId: string) => void;
 }
 
+/** How many popular items the home grid shows. */
+const POPULAR_LIMIT = 4;
+
 export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) => {
-  const { user, turfBookings, foodOrders, addToCart, cart, cartTotal, language } = useApp();
+  const { foodOrders, addToCart, cart, cartTotalPaise, language } = useApp();
   const [searchQuery, setSearchQuery] = useState('');
 
-  const activeBooking = turfBookings.find((b) => b.status === 'confirmed' || b.status === 'rescheduled');
-  const activeOrder = foodOrders.find((o) => o.status !== 'delivered');
+  /**
+   * The menu and the featured turf were `MOCK_MENU` and `MOCK_TURFS` — items the
+   * kitchen has never heard of, at prices nothing charges. Both are now the real
+   * tables, and the search box actually searches them.
+   */
+  const [menu, setMenu] = useState<MenuItem[]>([]);
+  const [isLoadingMenu, setIsLoadingMenu] = useState(true);
+  const [menuError, setMenuError] = useState<string | null>(null);
+  const [featuredTurf, setFeaturedTurf] = useState<Turf | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    ApiClient.getTurfs()
+      .then((rows) => {
+        if (!cancelled) setFeaturedTurf(rows[0] ?? null);
+      })
+      // A missing turf just hides the card; it must not blank the home screen.
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Debounced so typing does not fire a request per keystroke. The server does
+  // the matching, so a search finds items that are not in the first four.
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoadingMenu(true);
+    const timer = window.setTimeout(() => {
+      ApiClient.getMenu('all', searchQuery)
+        .then((rows) => {
+          if (cancelled) return;
+          setMenu(rows);
+          setMenuError(null);
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setMenu([]);
+          setMenuError(err instanceof Error ? err.message : 'Could not load the menu.');
+        })
+        .finally(() => {
+          if (!cancelled) setIsLoadingMenu(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  /** Bestsellers first, then by rating — "popular" with something behind it. */
+  const popularItems = useMemo(
+    () =>
+      [...menu]
+        .sort(
+          (a, b) =>
+            Number(b.isBestseller ?? false) - Number(a.isBestseller ?? false) ||
+            b.rating - a.rating,
+        )
+        .slice(0, POPULAR_LIMIT),
+    [menu],
+  );
+
+  // `isTerminal` is the server's own judgement, so the banner does not need a
+  // local list of end states that drifts from the backend's.
+  const activeOrder = foodOrders.find((o) => !o.isTerminal) ?? null;
   const cartItemCount = cart.reduce((total, cartItem) => total + cartItem.quantity, 0);
 
   // Category Pills matching UI Screenshot
@@ -82,7 +145,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
               🚚
             </div>
             <div>
-              <div className="text-xs font-black">Order #{activeOrder.id} is {activeOrder.status.replace(/_/g, ' ')}!</div>
+              <div className="text-xs font-black">Order #{activeOrder.orderNumber} is {activeOrder.status.replace(/_/g, ' ')}!</div>
               <div className="text-[10px] text-emerald-100 font-medium">Tap to track delivery on live GPS map</div>
             </div>
           </div>
@@ -90,14 +153,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
         </div>
       )}
 
-      {/* 3. Hero Promo Banner */}
+      {/* 3. Hero Promo Banner
+          The stock Unsplash photograph that used to sit behind this gradient was
+          somebody else's food, fetched from a third-party CDN on every home
+          screen render. It carried no licence for this app and sat at opacity-45
+          under a near-opaque overlay, so it was barely visible anyway. The
+          gradient below was always doing the actual work. */}
       <div className="relative overflow-hidden rounded-3xl bg-slate-900 text-white shadow-xl min-h-[160px] flex items-center">
-        <img
-          src="https://images.unsplash.com/photo-1546833999-b9f581a1996d?auto=format&fit=crop&q=80&w=800"
-          alt="IPL Dhaba Special"
-          className="absolute inset-0 w-full h-full object-cover opacity-45"
-        />
-        <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-900/90 to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-br from-emerald-800 via-slate-900 to-slate-950" />
 
         <div className="relative z-10 p-5 space-y-2 max-w-[260px]">
           <span className="bg-emerald-500/90 text-white font-extrabold text-[10px] px-3 py-1 rounded-full uppercase tracking-wider shadow-xs">
@@ -163,7 +226,9 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
       {/* 6. Popular Items / Matchday Specials */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-extrabold text-slate-900 dark:text-white text-base">Popular Items</h3>
+          <h3 className="font-extrabold text-slate-900 dark:text-white text-base">
+            {searchQuery.trim() ? `Results for "${searchQuery.trim()}"` : 'Popular Items'}
+          </h3>
           <button
             onClick={() => onNavigate('food')}
             className="text-xs font-bold text-emerald-500 hover:text-emerald-600"
@@ -172,8 +237,27 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
           </button>
         </div>
 
+        {isLoadingMenu && (
+          <div className="flex items-center justify-center gap-2 py-10 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading the kitchen…
+          </div>
+        )}
+
+        {!isLoadingMenu && menuError && (
+          <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 rounded-2xl p-3 text-xs font-semibold text-red-700 dark:text-red-300">
+            {menuError}
+          </div>
+        )}
+
+        {!isLoadingMenu && !menuError && popularItems.length === 0 && (
+          <div className="bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 rounded-2xl p-6 text-center text-xs font-medium text-slate-500 dark:text-slate-400">
+            {searchQuery.trim() ? 'Nothing on the menu matches that.' : 'The kitchen has nothing listed right now.'}
+          </div>
+        )}
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
-          {MOCK_MENU.slice(0, 4).map((item) => (
+          {popularItems.map((item) => (
             <div
               key={item.id}
               className="bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 rounded-2xl p-3 shadow-xs hover:shadow-md transition-all space-y-2.5 flex flex-col justify-between"
@@ -205,13 +289,14 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
               </div>
 
               <div className="flex items-center justify-between pt-1 border-t border-slate-100 dark:border-slate-800">
-                <span className="font-black text-emerald-600 text-base">₹{item.price}</span>
+                <span className="font-black text-emerald-600 text-base">{formatPaise(item.pricePaise)}</span>
                 <button
                   onClick={() => addToCart(item)}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3.5 py-1.5 rounded-full shadow-green-sm active:scale-95 transition-all flex items-center gap-1"
+                  disabled={item.isAvailable === false}
+                  className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3.5 py-1.5 rounded-full shadow-green-sm active:scale-95 transition-all flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  <span>Add</span>
+                  <span>{item.isAvailable === false ? 'Sold out' : 'Add'}</span>
                 </button>
               </div>
             </div>
@@ -220,44 +305,48 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
       </div>
 
       {/* 7. Box Turf Feature Card */}
-      <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <span className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-base">
-              🏏
+      {featuredTurf && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200/80 dark:border-slate-800 rounded-3xl p-4 shadow-xs space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold text-base">
+                🏏
+              </span>
+              <div>
+                <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">{featuredTurf.name}</h4>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">{featuredTurf.pitchType}</p>
+              </div>
+            </div>
+            <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
+              {formatPaise(featuredTurf.pricePerHourPaise)}/hr
             </span>
-            <div>
-              <h4 className="font-extrabold text-slate-900 dark:text-white text-sm">Singarayakonda Box Turf</h4>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Floodlit 500 Lux Cage Pitch</p>
+          </div>
+
+          <div className="rounded-2xl overflow-hidden h-36 relative">
+            <img src={featuredTurf.image} alt={featuredTurf.name} className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex items-end p-3">
+              <div className="text-white space-y-0.5">
+                <div className="text-xs font-bold">{featuredTurf.address}</div>
+                <div className="text-[10px] text-emerald-300 font-medium flex items-center gap-1">
+                  <Star className="w-3 h-3 fill-emerald-300" />
+                  {featuredTurf.rating} · {featuredTurf.reviewsCount} reviews
+                </div>
+              </div>
             </div>
           </div>
-          <span className="text-xs font-black text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full">
-            ₹1,200/hr
-          </span>
-        </div>
 
-        <div className="rounded-2xl overflow-hidden h-36 relative">
-          <img
-            src="https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&q=80&w=800"
-            alt="Turf"
-            className="w-full h-full object-cover"
-          />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950/80 via-transparent to-transparent flex items-end p-3">
-            <div className="text-white space-y-0.5">
-              <div className="text-xs font-bold">NH-16 Bypass Road, Singarayakonda</div>
-              <div className="text-[10px] text-emerald-300 font-medium">Connected to IPL Dhaba Kitchen</div>
-            </div>
-          </div>
+          <button
+            onClick={() => {
+              onSelectTurf(featuredTurf.id);
+              onNavigate('turfs');
+            }}
+            className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-full text-xs shadow-green-sm active:scale-95 transition-all flex items-center justify-center gap-1.5"
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Book Turf Slot & Pitch Service</span>
+          </button>
         </div>
-
-        <button
-          onClick={() => onNavigate('turfs')}
-          className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-2.5 rounded-full text-xs shadow-green-sm active:scale-95 transition-all flex items-center justify-center gap-1.5"
-        >
-          <Calendar className="w-4 h-4" />
-          <span>Book Turf Slot & Pitch Service</span>
-        </button>
-      </div>
+      )}
 
       <AnimatePresence>
         {cartItemCount > 0 && (
@@ -280,7 +369,7 @@ export const HomeView: React.FC<HomeViewProps> = ({ onNavigate, onSelectTurf }) 
                 </span>
                 <span>
                   <span className="block text-xs font-black">{cartItemCount} item{cartItemCount > 1 ? 's' : ''} in your cart</span>
-                  <span className="block text-[10px] font-medium text-emerald-300">Total ₹{cartTotal} · Ready when you are</span>
+                  <span className="block text-[10px] font-medium text-emerald-300">Total {formatPaise(cartTotalPaise)} · Ready when you are</span>
                 </span>
               </span>
               <span className="flex items-center gap-1 text-xs font-extrabold text-emerald-300">
