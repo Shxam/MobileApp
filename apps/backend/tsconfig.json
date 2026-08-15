@@ -1,0 +1,17 @@
+{
+  // Editor/tooling config for the backend sources only. The repo-root
+  // tsconfig.json lists "apps/backend" under `exclude` (its options target the
+  // Vite React frontends), so without this file an IDE opening a backend file
+  // would fall back to the root config and flag every NestJS decorator as
+  // "experimentalDecorators not enabled".
+  //
+  // This does NOT run the backend. Both `dev:backend` and `start:backend`
+  // compile with `tsc -p tsconfig.backend.json` and run the emitted JS — real
+  // tsc is required because it emits the `design:paramtypes` decorator metadata
+  // that NestJS constructor injection reads. `tsx`/esbuild cannot emit that
+  // metadata, so it can never run this app (every injected dependency would be
+  // `undefined` at boot). This is why 158 tests + the build always worked while
+  // `dev:backend`/`start:backend` never actually started.
+  "extends": "../../tsconfig.backend.json",
+  "include": ["src/**/*.ts", "../../packages/types/**/*.ts"]
+}

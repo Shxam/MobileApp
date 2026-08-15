@@ -27,8 +27,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = respObj.message || message;
       error = respObj.error || (exception as any).name || error;
     } else if (exception instanceof Error) {
-      message = exception.message;
-      error = exception.name;
+      const isProd = process.env.NODE_ENV === 'production';
+      message = isProd && status === 500 ? 'Internal server error' : exception.message;
+      error = isProd && status === 500 ? 'InternalServerError' : exception.name;
     }
 
     const requestId = (request.headers['x-request-id'] as string) || 'unknown_req';

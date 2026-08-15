@@ -232,8 +232,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.eventBus.subscribe<{ orderId: string; status: string; order: any; userId: string; dhabaId: string }>(
       'order.status_changed',
       (e) => {
+        const rooms = [userRoom(e.userId), kitchenRoom(e.dhabaId), orderRoom(e.orderId)];
+        if (e.status === 'cancelled' || e.status === 'delivery_failed') {
+          rooms.push(driversRoom(e.dhabaId));
+        }
         this.emit(
-          [userRoom(e.userId), kitchenRoom(e.dhabaId), orderRoom(e.orderId)],
+          rooms,
           ClientEvent.OrderUpdated,
           { orderId: e.orderId, status: e.status, order: e.order },
         );
@@ -242,6 +246,17 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         if (e.status === 'ready_for_pickup') {
           this.emit([driversRoom(e.dhabaId)], ClientEvent.OrderOffered, { orderId: e.orderId, order: e.order });
         }
+      },
+    );
+
+    this.eventBus.subscribe<{ orderId: string; orderNumber: string; driverId: string; reason: string; dhabaId: string }>(
+      'order.issue_reported',
+      (e) => {
+        this.emit([kitchenRoom(e.dhabaId), orderRoom(e.orderId)], ClientEvent.OrderUpdated, {
+          orderId: e.orderId,
+          isFlagged: true,
+          flaggedReason: e.reason,
+        });
       },
     );
 

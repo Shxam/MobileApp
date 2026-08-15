@@ -8,7 +8,6 @@ import { NotificationToast } from './components/NotificationToast';
 import { NotificationDrawer } from './components/NotificationDrawer';
 import { ProfileModal } from './components/ProfileModal';
 import { SupportModal } from './components/SupportModal';
-import { AdminPartnerPortal } from './components/AdminPartnerPortal';
 import { QrScannerModal } from './components/QrScannerModal';
 
 import { GetStartedView } from './views/GetStartedView';
@@ -28,7 +27,6 @@ function MainApp() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotifDrawerOpen, setIsNotifDrawerOpen] = useState(false);
   const [isSupportOpen, setIsSupportOpen] = useState(false);
-  const [isAdminPortalOpen, setIsAdminPortalOpen] = useState(false);
   const [isQrScannerOpen, setIsQrScannerOpen] = useState(false);
 
   useEffect(() => {
@@ -128,7 +126,6 @@ function MainApp() {
           isOpen={isProfileOpen}
           onClose={() => setIsProfileOpen(false)}
           onOpenSupport={() => setIsSupportOpen(true)}
-          onOpenAdminPortal={() => setIsAdminPortalOpen(true)}
           onNavigateTab={(tab) => {
             setActiveTab(tab);
             setIsProfileOpen(false);
@@ -136,7 +133,6 @@ function MainApp() {
         />
         <NotificationDrawer isOpen={isNotifDrawerOpen} onClose={() => setIsNotifDrawerOpen(false)} />
         <SupportModal isOpen={isSupportOpen} onClose={() => setIsSupportOpen(false)} />
-        <AdminPartnerPortal isOpen={isAdminPortalOpen} onClose={() => setIsAdminPortalOpen(false)} />
         <QrScannerModal
           isOpen={isQrScannerOpen}
           onClose={() => setIsQrScannerOpen(false)}

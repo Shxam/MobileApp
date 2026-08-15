@@ -32,6 +32,8 @@ export interface AuthUserProfile {
   id: string;
   name: string;
   phone: string;
+  email?: string;
+  avatar?: string;
   favoriteTeam: string | null;
   walletBalancePaise: number;
   fanPoints: number;
@@ -178,7 +180,7 @@ export class AuthService {
     // Role comes from the database, not the incoming token. The previous
     // implementation omitted it entirely, silently downgrading every staff
     // member to `customer` on refresh.
-    return this.generateTokens(user.id, user.phone, user.role, user.dhabaId);
+    return this.generateTokens(user.id, user.phone ?? '', user.role, user.dhabaId);
   }
 
   /**
@@ -256,7 +258,7 @@ export class AuthService {
     // operator back to the login screen with an order half-cooked; `ApiClient`
     // has a refresh path and nothing to feed it.
     const refreshToken = this.jwtService.sign(
-      { sub: staff.id, phone: staff.phone, type: 'refresh' } satisfies TokenPayload,
+      { sub: staff.id, phone: staff.phone ?? '', type: 'refresh' } satisfies TokenPayload,
       { secret: env.jwtRefreshSecret, expiresIn: '7d' },
     );
     await this.redisService.set(refreshKey(refreshToken), staff.id, REFRESH_TTL_SECONDS);
@@ -333,7 +335,9 @@ export class AuthService {
     return {
       id: user.id,
       name: user.name ?? 'IPL Dhaba Fan',
-      phone: user.phone,
+      phone: user.phone ?? '',
+      email: user.email ?? undefined,
+      avatar: user.avatar ?? undefined,
       favoriteTeam: user.favoriteTeam,
       walletBalancePaise: user.wallet?.balancePaise ?? 0,
       fanPoints: user.fanPoints?.balance ?? 0,

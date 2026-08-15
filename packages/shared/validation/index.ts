@@ -129,12 +129,13 @@ export class Validator {
     ready_for_pickup: ['assigned', 'cancelled'],
     assigned: ['picked_up', 'ready_for_pickup', 'cancelled'],
     // `out_for_delivery` is a legacy alias of `picked_up`; both reach delivered.
-    picked_up: ['delivered', 'out_for_delivery'],
-    out_for_delivery: ['delivered'],
+    picked_up: ['delivered', 'out_for_delivery', 'delivery_failed'],
+    out_for_delivery: ['delivered', 'delivery_failed'],
     delivered: ['refunded'],
     cancelled: ['refunded'],
     refunded: [],
     payment_failed: ['awaiting_payment', 'cancelled'],
+    delivery_failed: ['refunded'],
   };
 
   public static isValidOrderStatusTransition(current: OrderStatus, target: OrderStatus): boolean {

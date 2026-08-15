@@ -241,8 +241,24 @@ export class BookingsService {
     if (booking.paymentStatus !== PaymentStatus.paid) {
       return { valid: false as const, reason: 'Payment is still due for this booking.' };
     }
+    if (booking.usedAt) {
+      return { valid: false as const, reason: `Already used at ${booking.usedAt.toISOString()}` };
+    }
 
-    return { valid: true as const, booking: this.serialize(booking) };
+    const now = new Date();
+    const { count } = await this.prisma.booking.updateMany({
+      where: { id: booking.id, usedAt: null },
+      data: { usedAt: now },
+    });
+    if (count === 0) {
+      const rechecked = await this.prisma.booking.findUnique({ where: { id: booking.id } });
+      return {
+        valid: false as const,
+        reason: `Already used at ${(rechecked?.usedAt || now).toISOString()}`,
+      };
+    }
+
+    return { valid: true as const, booking: this.serialize({ ...booking, usedAt: now }) };
   }
 
   private isStaff(role: Role | string): boolean {

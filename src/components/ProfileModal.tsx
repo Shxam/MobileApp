@@ -439,20 +439,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 </div>
               </div>
 
-              {/* Admin Partner Portal Entry */}
-              {onOpenAdminPortal && (
-                <button
-                  onClick={() => {
-                    onClose();
-                    onOpenAdminPortal();
-                  }}
-                  className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 font-bold py-2.5 rounded-2xl text-xs border border-slate-200 dark:border-slate-700 flex items-center justify-center gap-2"
-                >
-                  <ShieldCheck className="w-4 h-4 text-emerald-500" />
-                  <span>Open Kitchen Partner & Admin Portal</span>
-                </button>
-              )}
-
               {/* Logout Button */}
               <button
                 onClick={() => {
@@ -579,7 +565,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     <button
                       onClick={() => handleDeleteAddress(addr.id)}
                       aria-label={`Delete ${addr.label}`}
-                      className="shrink-0 w-7 h-7 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors"
+                      className="shrink-0 w-7 h-7 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 flex items-center justify-center transition-colors"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

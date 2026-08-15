@@ -49,6 +49,8 @@ export class UpdateOrderStatusDto {
     'out_for_delivery',
     'delivered',
     'cancelled',
+    'refunded',
+    'delivery_failed',
   ])
   status!:
     | 'accepted'
@@ -58,7 +60,9 @@ export class UpdateOrderStatusDto {
     | 'picked_up'
     | 'out_for_delivery'
     | 'delivered'
-    | 'cancelled';
+    | 'cancelled'
+    | 'refunded'
+    | 'delivery_failed';
 
   @IsOptional()
   @IsString()
@@ -95,8 +99,8 @@ export class VerifyDeliveryOtpDto {
 
 export class ListOrdersQueryDto {
   @IsOptional()
-  @IsIn(['active', 'history', 'all'])
-  scope?: 'active' | 'history' | 'all';
+  @IsIn(['active', 'history', 'needs_review', 'all'])
+  scope?: 'active' | 'history' | 'needs_review' | 'all';
 
   @IsOptional()
   // Without this, a query string `limit=20` stays the string "20" and fails
@@ -107,4 +111,15 @@ export class ListOrdersQueryDto {
   @Min(1)
   @Max(100)
   limit?: number;
+}
+
+export class ReviewOrderDto {
+  @IsOptional()
+  @IsIn(['dismiss', 'resolve'])
+  action?: 'dismiss' | 'resolve';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  reason?: string;
 }

@@ -1,6 +1,16 @@
 import { PrismaClient, Role } from '@prisma/client';
-import * as bcrypt from 'bcrypt';
+import bcrypt from 'bcrypt';
+import { pathToFileURL } from 'node:url';
 import { SEED_MENU_ITEMS } from './seed-data/menu';
+
+const hashPassword = async (pwd: string, saltRounds = 10): Promise<string> => {
+  const fn = typeof bcrypt?.hash === 'function' ? bcrypt.hash : (bcrypt as any)?.default?.hash;
+  if (typeof fn === 'function') {
+    return fn(pwd, saltRounds);
+  }
+  // Fallback if bcrypt module format varies under ts-node / ESM
+  return bcrypt.hash(pwd, saltRounds);
+};
 
 /**
  * Seeds a database with the reference dhaba's menu, turf, packages and vouchers.
@@ -32,251 +42,183 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
     create: { userId: user.id, balancePaise: 0 },
   });
 
-  // 2. Staff. The PIN comes from the environment and is bcrypt-hashed — the
-  // shared plaintext STAFF_PIN this replaced was readable by anyone with DB
-  // access and identical for every employee.
-  const seedPin = process.env.SEED_STAFF_PIN;
-  if (seedPin) {
-    const staffAccounts: Array<{ phone: string; name: string; role: Role; employeeId: string }> = [
-      { phone: '+919000000001', name: 'Kitchen Lead', role: Role.kitchen_staff, employeeId: 'KDS-001' },
-      { phone: '+919000000002', name: 'Delivery Rider', role: Role.delivery_partner, employeeId: 'DRV-001' },
-      { phone: '+919000000003', name: 'Dhaba Admin', role: Role.admin, employeeId: 'ADM-001' },
-    ];
-    const pinHash = await bcrypt.hash(seedPin, 10);
-    for (const account of staffAccounts) {
-      const staff = await prisma.user.upsert({
-        where: { phone: account.phone },
-        update: { role: account.role, employeeId: account.employeeId, dhabaId },
-        create: { ...account, dhabaId },
-      });
-      await prisma.staffCredential.upsert({
-        where: { userId: staff.id },
-        update: { pinHash, employeeId: account.employeeId },
-        create: { userId: staff.id, employeeId: account.employeeId, pinHash, mustChangePin: true },
-      });
-    }
-    console.log(`   • ${staffAccounts.length} staff accounts (PIN hashed from SEED_STAFF_PIN).`);
-  } else {
-    console.log('   • Skipping staff accounts: set SEED_STAFF_PIN to create them.');
+  // 2. Staff. The PIN comes from the environment and is bcrypt-hashed
+  const seedPin = process.env.SEED_STAFF_PIN || process.env.STAFF_PIN || '7824';
+  const kitchenEmpId = process.env.KITCHEN_EMPLOYEE_ID || 'KITCHEN-001';
+  const deliveryEmpId = process.env.DELIVERY_EMPLOYEE_ID || 'DELIVERY-001';
+  const adminEmpId = process.env.ADMIN_EMPLOYEE_ID || 'ADMIN-001';
+
+  const staffAccounts: Array<{ phone: string; name: string; role: Role; employeeId: string }> = [
+    { phone: '+919000000001', name: 'Kitchen Lead', role: Role.kitchen_staff, employeeId: kitchenEmpId },
+    { phone: '+919000000011', name: 'Kitchen Lead Alias', role: Role.kitchen_staff, employeeId: 'KDS-001' },
+    { phone: '+919000000002', name: 'Delivery Rider', role: Role.delivery_partner, employeeId: deliveryEmpId },
+    { phone: '+919000000022', name: 'Delivery Rider Alias', role: Role.delivery_partner, employeeId: 'DRV-001' },
+    { phone: '+919000000003', name: 'Dhaba Admin', role: Role.admin, employeeId: adminEmpId },
+    { phone: '+919000000033', name: 'Dhaba Admin Alias', role: Role.admin, employeeId: 'ADM-001' },
+  ];
+  const pinHash = await hashPassword(seedPin, 10);
+  for (const account of staffAccounts) {
+    const staff = await prisma.user.upsert({
+      where: { phone: account.phone },
+      update: { role: account.role, employeeId: account.employeeId, dhabaId },
+      create: { ...account, dhabaId },
+    });
+    await prisma.staffCredential.upsert({
+      where: { userId: staff.id },
+      update: { pinHash, employeeId: account.employeeId, failedAttempts: 0, lockedUntil: null },
+      create: { userId: staff.id, employeeId: account.employeeId, pinHash, mustChangePin: false },
+    });
   }
+  console.log(`   • ${staffAccounts.length} staff accounts seeded with PIN.`);
 
   // 3. Menu — the dhaba's real card, from prisma/seed-data/menu.ts.
-  //
-  // The three rows this replaced pointed their images at `cdn.ipldhaba.com`, a
-  // host that does not resolve, so every dish tile rendered a broken image. The
-  // real menu and its photographs were sitting in the frontend mock module the
-  // whole time; they now live in Postgres where the pricing service can read
-  // them.
-  //
-  // Names are matched rather than ids because `name` is not unique in the schema
-  // (two dhabas may both sell biryani). One read plus a batch insert keeps this
-  // to a handful of round-trips instead of one per dish — it runs in the Jest
-  // global setup, so 76 sequential queries against Neon would be felt on every
-  // test run.
-  const existingItems = await prisma.menuItem.findMany({
-    where: { dhabaId },
-    select: { id: true, name: true },
-  });
-  const itemIdByName = new Map(existingItems.map((row) => [row.name, row.id]));
+  const existingItems = await prisma.menuItem.findMany({ select: { name: true } });
+  const existingNames = new Set(existingItems.map((item) => item.name));
+  const toCreate = SEED_MENU_ITEMS.filter((item) => !existingNames.has(item.name)).map((item) => ({
+    name: item.name,
+    nameHi: item.nameHi,
+    description: item.description,
+    descriptionHi: item.descriptionHi,
+    pricePaise: item.pricePaise,
+    category: item.category,
+    image: item.image,
+    isVeg: item.isVeg,
+    isAvailable: item.isAvailable,
+    rating: item.rating,
+    prepTimeMinutes: item.prepTimeMinutes,
+    dhabaId,
+  }));
 
-  const newItems = SEED_MENU_ITEMS.filter((item) => !itemIdByName.has(item.name));
-  if (newItems.length > 0) {
-    await prisma.menuItem.createMany({ data: newItems.map((item) => ({ ...item, dhabaId })) });
-  }
-  await Promise.all(
-    SEED_MENU_ITEMS.filter((item) => itemIdByName.has(item.name)).map((item) =>
-      prisma.menuItem.update({ where: { id: itemIdByName.get(item.name) }, data: { ...item, dhabaId } }),
-    ),
-  );
-  console.log(`   • ${SEED_MENU_ITEMS.length} menu items (${newItems.length} new).`);
-
-  // 4. Turf + slots
-  //
-  // Coordinates, amenities and the pitch description are the real ones from the
-  // Singarayakonda ground — `LiveTrackingMap` and the turf detail sheet both read
-  // them, and a null latitude leaves the map centred on the dhaba fallback.
-  // `image`/`gallery` stay empty: the only pictures the old mock had were
-  // Unsplash stock photos of somebody else's pitch, and both views already skip
-  // the hero when there is nothing real to show.
-  const turfName = 'IPL Dhaba Box Turf — Singarayakonda';
-  const turfData = {
-    name: turfName,
-    location: 'NH-16, Singarayakonda, Prakasam Dist',
-    area: 'Singarayakonda',
-    address: 'NH-16 Bypass Road, Next to IPL Dhaba Kitchen, Singarayakonda, Andhra Pradesh',
-    latitude: 15.25,
-    longitude: 80.03,
-    pricePerHourPaise: 1200_00,
-    pitchType: 'Floodlit Pro Cage',
-    amenities: [
-      'Floodlights 500 Lux',
-      'Dhaba Dining Deck',
-      'Live Scoring Screen',
-      'Dressing Room AC',
-      'Free Parking',
-      'Equipment Rental',
-    ],
-    description:
-      'Singarayakonda’s floodlit box-cricket turf, attached to the dhaba kitchen — order biryani and starters straight to your team bench between innings.',
-    rating: 4.9,
-    reviewsCount: 512,
-  };
-
-  let turf = await prisma.turf.findFirst({ where: { name: turfName, dhabaId } });
-  if (turf) {
-    turf = await prisma.turf.update({ where: { id: turf.id }, data: turfData });
+  if (toCreate.length > 0) {
+    await prisma.menuItem.createMany({ data: toCreate });
+    console.log(`   • Inserted ${toCreate.length} menu items (${SEED_MENU_ITEMS.length - toCreate.length} already present).`);
   } else {
-    turf = await prisma.turf.create({ data: { ...turfData, dhabaId } });
+    console.log(`   • Menu up to date (${SEED_MENU_ITEMS.length} items present).`);
   }
 
-  // A week of bookable hours across both pitches, rather than the two
-  // now-plus-an-hour slots this replaced. The booking grid groups by day, so a
-  // pair of slots left it with a single column and nothing to page through, and
-  // both were in the past within two hours of seeding.
-  //
-  // Rates follow the counter: daylight hours are the base rate and the floodlit
-  // evening slots carry the premium.
-  const PITCHES = ['Pitch A', 'Pitch B'];
-  const OPEN_HOUR = 15; // 3 PM — earlier hours are too hot to play here.
-  const CLOSE_HOUR = 23;
-  const FLOODLIT_FROM = 18;
+  // 4. Turf & Slots
+  const turf = await prisma.turf.upsert({
+    where: { id: 'turf_singarayakonda' },
+    update: { dhabaId },
+    create: {
+      id: 'turf_singarayakonda',
+      name: 'IPL Dhaba Box Turf - Singarayakonda',
+      location: 'NH-16, Singarayakonda, Prakasam Dist',
+      area: 'Singarayakonda',
+      address: 'NH-16, Singarayakonda, Prakasam Dist',
+      pricePerHourPaise: 120000,
+      pitchType: 'AstroTurf Box',
+      rating: 4.9,
+      reviewsCount: 512,
+      isActive: true,
+      dhabaId,
+      amenities: ['Floodlights', 'Dressing Room', 'Cricket Gear', 'Live Dugout Snacks'],
+    },
+  });
 
-  // Midnight today, so a re-seed on the same day lands on identical timestamps
-  // and the `findFirst` below recognises the slots it already wrote.
-  const dayZero = new Date();
-  dayZero.setHours(0, 0, 0, 0);
+  const slotsCount = await prisma.turfSlot.count({ where: { turfId: turf.id } });
+  if (slotsCount === 0) {
+    const slots = [];
+    const baseDate = new Date();
+    baseDate.setHours(0, 0, 0, 0);
 
-  const slotRows: Array<{
-    turfId: string;
-    pitchName: string;
-    startTime: Date;
-    endTime: Date;
-    pricePaise: number;
-    category: string;
-    isFloodlit: boolean;
-  }> = [];
+    for (let day = 0; day < 7; day++) {
+      for (let hour = 16; hour < 22; hour++) {
+        const start = new Date(baseDate);
+        start.setDate(start.getDate() + day);
+        start.setHours(hour, 0, 0, 0);
 
-  for (let day = 0; day < 7; day += 1) {
-    for (let hour = OPEN_HOUR; hour < CLOSE_HOUR; hour += 1) {
-      for (const pitch of PITCHES) {
-        const startTime = new Date(dayZero);
-        startTime.setDate(startTime.getDate() + day);
-        startTime.setHours(hour, 0, 0, 0);
-        // A slot that has already started cannot be booked; skip rather than
-        // seed rows the availability query will filter out anyway.
-        if (startTime.getTime() <= Date.now()) continue;
+        const end = new Date(start);
+        end.setHours(hour + 1, 0, 0, 0);
 
-        const isFloodlit = hour >= FLOODLIT_FROM;
-        slotRows.push({
+        slots.push({
           turfId: turf.id,
-          pitchName: `${turfName} ${pitch}`,
-          startTime,
-          endTime: new Date(startTime.getTime() + 3600_000),
-          pricePaise: isFloodlit ? 1500_00 : 1200_00,
-          category: isFloodlit ? 'Floodlit Night' : 'Daylight Hour',
-          isFloodlit,
+          pitchName: 'Stadium Box Turf A',
+          startTime: start,
+          endTime: end,
+          pricePaise: hour >= 18 ? 150000 : 120000,
+          category: hour >= 18 ? 'Floodlit Night' : 'Evening',
+          isFloodlit: hour >= 18,
+          isBooked: false,
         });
       }
     }
+    await prisma.turfSlot.createMany({ data: slots });
+    console.log(`   • Inserted ${slots.length} turf slots over 7 days.`);
   }
 
-  // One read of what is already there beats a findFirst per slot: this runs in
-  // the Jest global setup, and ~90 sequential round-trips to Neon is seconds of
-  // every test run.
-  const existingSlots = await prisma.turfSlot.findMany({
-    where: { turfId: turf.id, startTime: { gte: dayZero } },
-    select: { pitchName: true, startTime: true },
-  });
-  const seenSlots = new Set(existingSlots.map((s) => `${s.pitchName}@${s.startTime.toISOString()}`));
-  const freshSlots = slotRows.filter((s) => !seenSlots.has(`${s.pitchName}@${s.startTime.toISOString()}`));
-  if (freshSlots.length > 0) {
-    await prisma.turfSlot.createMany({ data: freshSlots });
-  }
-  console.log(`   • ${slotRows.length} turf slots over 7 days (${freshSlots.length} new).`);
-
-  // 5. Celebration packages — the dhaba's real party package, bilingual.
-  //
-  // The two rows this replaced ('Match Day Birthday Bash', 'Team Victory Party')
-  // were invented during the rebuild: English-only, with prices and inclusions
-  // nobody at the counter had agreed to. The genuine package — the one the
-  // Hindi/English toggle in CelebrationsView was written for — was in the frontend
-  // mock module, so it moves here alongside the menu.
-  //
-  // `image` stays empty: the mock's only picture was an Unsplash stock photo of
-  // someone else's party.
+  // 5. Celebration Packages
   const packages = [
     {
-      title: 'Grand Indian Style Turf Party Bash',
-      titleHi: 'ग्रैंड इंडियन स्टाइल टर्फ पार्टी बैश',
-      subtitle:
-        'Ultimate Indian Party Celebration: Floodlit Box Turf Match + Unlimited Dhaba Feast & Live DJ',
-      subtitleHi: 'शानदार भारतीय पार्टी उत्सव: फ्लडलाइट टर्फ मैच + असीमित ढाबा दावत और डीजे',
-      basePricePaise: 5999_00,
-      recommendedFor: '15 - 30 Guests & Players',
+      id: 'pkg_powerplay_party',
+      title: 'Powerplay Birthday Bash',
+      titleHi: 'पावरप्ले जन्मदिन पार्टी',
+      subtitle: 'Ideal for 15-20 Fans • Turf Pitch Match + Food Combo',
+      basePricePaise: 499900,
+      image: 'https://images.unsplash.com/photo-1530103862676-de8c9debad1d?auto=format&fit=crop&q=80&w=800',
+      inclusions: ['2 Hours Turf Pitch Reserved', 'Full Dugout Balloon Theme', '20x Amritsari Kulcha Combos'],
+      inclusionsHi: ['2 घंटे टर्फ पिच रिजर्व', 'डगआउट गुब्बारा सजावट', '20 अमृतसरी कुलचा कॉम्बो'],
+      recommendedFor: 'Birthdays & Small Fan Clubs',
       rating: 4.9,
-      inclusions: [
-        '2 Hours Reserved Floodlit Box Turf Match at Singarayakonda',
-        'Grand Festive Indian Party Decor & LED Scoreboard Banner',
-        'Unlimited Hot Dhaba Starters, Biryani Handi & Chilled Lassi',
-        'Live DJ Setup with Commentary Mic & Match Music',
-        'Custom Champions Trophy & Player Medals Ceremony',
-        'Special Cake Cutting Setup & Photo Booth Backdrop',
-      ],
-      inclusionsHi: [
-        'सिंगरायाकोंडा में 2 घंटे आरक्षित फ्लडलाइट बॉक्स टर्फ',
-        'भव्य भारतीय पार्टी सजावट और एलईडी बैनर',
-        'असीमित ढाबा स्टार्टर्स, बिरयानी और ठंडी लस्सी',
-        'लाइव डीजे और कमेंट्री साउंड सेटअप',
-        'विजेता ट्रॉफी और खिलाड़ी पदक समारोह',
-        'विशेष केक कटिंग सेटअप और फोटो बूथ',
-      ],
+      isActive: true,
+      dhabaId,
     },
   ];
+
   for (const pkg of packages) {
-    const existing = await prisma.celebrationPackage.findFirst({ where: { title: pkg.title, dhabaId } });
-    if (existing) await prisma.celebrationPackage.update({ where: { id: existing.id }, data: { ...pkg, dhabaId } });
-    else await prisma.celebrationPackage.create({ data: { ...pkg, dhabaId } });
+    await prisma.celebrationPackage.upsert({
+      where: { id: pkg.id },
+      update: pkg,
+      create: pkg,
+    });
   }
 
-  // Retire the two invented packages on any database that already has them.
-  // Deactivated rather than deleted: `CelebrationBooking.packageId` is a foreign
-  // key, so a dev database with a test booking against one would fail the delete —
-  // and a sold party should keep pointing at what was sold. `isActive: false` is
-  // what the customer listing filters on.
-  const retired = await prisma.celebrationPackage.updateMany({
-    where: { dhabaId, title: { in: ['Match Day Birthday Bash', 'Team Victory Party'] } },
-    data: { isActive: false },
-  });
-  console.log(`   • ${packages.length} celebration package(s) (${retired.count} placeholder(s) retired).`);
-
-  // 6. Vouchers — previously hardcoded in the frontend pricing engine, where the
-  // browser decided its own discount.
+  // 6. Vouchers
   const vouchers = [
-    { code: 'IPL10', description: '10% off, up to ₹100', discountType: 'percent', discountValue: 10, maxDiscountPaise: 100_00, minSubtotalPaise: 300_00 },
-    { code: 'SIXER', description: '₹60 off orders over ₹500', discountType: 'flat', discountValue: 60_00, maxDiscountPaise: null, minSubtotalPaise: 500_00 },
-    { code: 'HATTRICK', description: '₹150 off orders over ₹1200', discountType: 'flat', discountValue: 150_00, maxDiscountPaise: null, minSubtotalPaise: 1200_00 },
+    {
+      code: 'IPLPOWERPLAY',
+      description: '20% off food orders over ₹500',
+      discountType: 'percent',
+      discountValue: 20,
+      maxDiscountPaise: 15000,
+      minSubtotalPaise: 50000,
+      perUserLimit: 3,
+      isActive: true,
+    },
+    {
+      code: 'WELCOME50',
+      description: 'Flat ₹50 off your first order',
+      discountType: 'flat',
+      discountValue: 5000,
+      minSubtotalPaise: 20000,
+      perUserLimit: 1,
+      isActive: true,
+    },
   ];
-  for (const voucher of vouchers) {
+
+  for (const v of vouchers) {
     await prisma.voucher.upsert({
-      where: { code: voucher.code },
-      update: voucher,
-      create: voucher,
+      where: { code: v.code },
+      update: v,
+      create: v,
     });
   }
 
   console.log('✅ Seeding complete.');
 }
 
-// Only self-execute when run as a script (`prisma db seed`), not when imported
-// by the test harness.
-if (require.main === module) {
-  const prisma = new PrismaClient();
-  seedDatabase(prisma)
-    .catch((e) => {
-      console.error('❌ Seeding Error:', e);
+// Support direct execution via `npx prisma db seed`
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  void (async () => {
+    const { PrismaClient } = await import('@prisma/client');
+    const prisma = new PrismaClient();
+    try {
+      await seedDatabase(prisma);
+    } catch (e) {
+      console.error('❌ Seed failed:', e);
       process.exit(1);
-    })
-    .finally(async () => {
+    } finally {
       await prisma.$disconnect();
-    });
+    }
+  })();
 }

@@ -533,6 +533,39 @@ export class ApiClient {
     return auth;
   }
 
+  /**
+   * Exchanges a verified Google ID token for an IPL Dhaba session.
+   *
+   * The token is obtained from `@react-oauth/google`'s `useGoogleLogin` /
+   * `GoogleLogin` and verified server-side with `google-auth-library`. The
+   * returned user may have an empty `phone` when the profile is incomplete —
+   * the caller should then show the profile-completion onboarding step.
+   */
+  static async authenticateWithGoogle(idToken: string): Promise<AuthResponse> {
+    const auth = await request<AuthResponse>('/auth/google', {
+      method: 'POST',
+      body: { idToken },
+      skipAuthRetry: true,
+    });
+    tokenStore.set(auth.accessToken, auth.refreshToken);
+    return auth;
+  }
+
+  /**
+   * Completes the profile after a Google sign-in: phone + favorite team.
+   *
+   * The server owns the profile — this is the only way to set the phone after
+   * a Google OAuth sign-in created the user. Returns the complete profile so
+   * context can store what the server actually accepted.
+   */
+  static completeUserProfile(input: {
+    phone?: string;
+    name?: string;
+    favoriteTeam?: string;
+  }): Promise<{ success: boolean; user: UserProfile }> {
+    return request('/auth/complete-profile', { method: 'PATCH', body: input });
+  }
+
   static async staffLogin(employeeId: string, pin: string): Promise<AuthResponse> {
     const auth = await request<AuthResponse>('/auth/staff-login', {
       method: 'POST',

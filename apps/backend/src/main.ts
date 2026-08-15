@@ -69,7 +69,15 @@ async function bootstrap() {
 }
 
 bootstrap().catch((err) => {
-  // Env validation failures land here with a readable multi-line message.
-  new Logger('NestBootstrap').error(err instanceof Error ? err.message : String(err));
+  const log = new Logger('NestBootstrap');
+  // Env validation failures (EnvironmentError) carry a readable multi-line
+  // message and no useful stack, so print just the message for those. Any other
+  // boot failure is a code error — print the stack too, or a crash during
+  // lifecycle hooks (e.g. a missing DI dependency) is reported as a bare
+  // one-line message with no hint of where it came from.
+  log.error(err instanceof Error ? err.message : String(err));
+  if (err instanceof Error && err.name !== 'EnvironmentError' && err.stack) {
+    log.error(err.stack);
+  }
   process.exit(1);
 });

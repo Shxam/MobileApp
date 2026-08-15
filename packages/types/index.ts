@@ -20,6 +20,7 @@ export interface UserProfile {
   id: string;
   name: string;
   phone: string;
+  email?: string;
   favoriteTeam?: string | null;
   /** Wallet balance in paise. */
   walletBalancePaise: number;
@@ -165,7 +166,8 @@ export type OrderStatus =
   | 'delivered'
   | 'cancelled'
   | 'refunded'
-  | 'payment_failed';
+  | 'payment_failed'
+  | 'delivery_failed';
 
 /** Statuses after which an order can no longer transition. */
 export const TERMINAL_ORDER_STATUSES: readonly OrderStatus[] = [

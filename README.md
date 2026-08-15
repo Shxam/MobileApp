@@ -421,7 +421,7 @@ Secrets are **externalized** — the chart expects an External Secrets / SealedS
 
 ### Production build note
 
-`vite build <root>` emits to `<root>/dist`, so the four frontends don't overwrite each other. `build:backend` emits `dist/apps/backend/src/main.js`; run it **after** `npm run build`.
+`vite build <root>` emits to `<root>/dist`, so the four frontends don't overwrite each other. `build:backend` compiles with `tsc` (which emits the `emitDecoratorMetadata` that NestJS DI depends on) to a **separate** `dist-backend/` tree, then writes a `dist-backend/package.json` `{"type":"commonjs"}` marker so Node runs the compiled CommonJS despite the root `package.json` `"type":"module"`. Start it with `npm run start:backend` (`node dist-backend/apps/backend/src/main.js`). The backend is never run with `tsx`/esbuild — esbuild does not emit decorator metadata, so every injected dependency would resolve to `undefined` at boot.
 
 ---
 

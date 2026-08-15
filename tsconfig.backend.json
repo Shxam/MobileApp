@@ -20,12 +20,12 @@
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
 
-    "outDir": "./dist",
+    "outDir": "./dist-backend",
     "rootDir": ".",
     "sourceMap": true,
     "declaration": false,
     "incremental": true,
-    "tsBuildInfoFile": "./dist/.tsbuildinfo"
+    "tsBuildInfoFile": "./dist-backend/.tsbuildinfo"
   },
   "include": ["apps/backend/src/**/*.ts", "packages/types/**/*.ts"],
   "exclude": ["node_modules", "**/dist", "**/*.spec.ts", "**/*.test.ts"]

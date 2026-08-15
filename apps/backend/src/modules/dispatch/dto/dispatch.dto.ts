@@ -24,3 +24,9 @@ export class ReleaseOrderDto {
   @MaxLength(300)
   reason?: string;
 }
+
+export class ReportIssueDto {
+  @IsString()
+  @MaxLength(300)
+  reason!: string;
+}

@@ -173,6 +173,9 @@ export const env = {
   firebasePrivateKey: optional('FIREBASE_PRIVATE_KEY'),
   googleApplicationCredentials: optional('GOOGLE_APPLICATION_CREDENTIALS'),
 
+  /// Google OAuth — the client ID of the OAuth 2.0 web application.
+  googleClientId: optional('GOOGLE_CLIENT_ID', '')!,
+
   cricketApiKey: optional('CRICKET_API_KEY'),
 
   defaultDhabaId: optional('DEFAULT_DHABA_ID', 'dhaba_singarayakonda')!,

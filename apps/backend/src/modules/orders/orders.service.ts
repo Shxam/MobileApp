@@ -14,6 +14,7 @@ import { PricingService, type DeliveryType } from '../pricing/pricing.service';
 import { FOOD_GST_RATE } from '../pricing/pricing.constants';
 import { VouchersService } from '../pricing/vouchers.service';
 import { WalletService } from '../wallet/wallet.service';
+import { PaymentsService } from '../payment-gateway/payments.service';
 import { env } from '../../common/config/env';
 import { assertTransition, isTerminal, timestampFieldFor } from './order-state-machine';
 import type { CreateOrderDto, ListOrdersQueryDto } from './dto/order.dto';
@@ -59,6 +60,7 @@ export class OrdersService {
     private readonly pricing: PricingService,
     private readonly vouchers: VouchersService,
     private readonly wallet: WalletService,
+    private readonly paymentsService: PaymentsService,
   ) {}
 
   /** Prices a cart without committing to it. */
@@ -224,7 +226,11 @@ export class OrdersService {
     }
 
     if (scope === 'active') where.status = { in: ACTIVE_STATUSES };
-    if (scope === 'history') where.status = { in: ['delivered', 'cancelled', 'refunded'] };
+    if (scope === 'history') where.status = { in: ['delivered', 'cancelled', 'refunded', 'delivery_failed'] };
+    if (scope === 'needs_review') {
+      where.reviewedAt = null;
+      where.OR = [{ status: 'delivery_failed' }, { isFlagged: true }];
+    }
 
     const orders = await this.prisma.order.findMany({
       where,
@@ -274,17 +280,38 @@ export class OrdersService {
     const data: Prisma.OrderUpdateInput = {
       status,
       ...(stampField ? { [stampField]: new Date() } : {}),
-      ...(status === 'cancelled' ? { cancellationReason: reason?.trim() || 'Cancelled' } : {}),
+      ...(status === 'refunded' ? { reviewedAt: new Date() } : {}),
+      ...(status === 'cancelled' || status === 'delivery_failed'
+        ? { cancellationReason: reason?.trim() || (status === 'delivery_failed' ? 'Delivery Failed' : 'Cancelled') }
+        : {}),
     };
 
     // Re-assert the starting status so two concurrent transitions cannot both
     // apply — the loser sees count 0 and is told the order moved on.
-    const { count } = await this.prisma.order.updateMany({
-      where: { id, status: order.status },
-      data: data as Prisma.OrderUpdateManyMutationInput,
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({
+        where: { id, status: order.status },
+        data: data as Prisma.OrderUpdateManyMutationInput,
+      });
+      if (count === 0) {
+        throw new ConflictException('This order was updated by someone else. Please refresh.');
+      }
+
+      // If an assigned/picked_up order is cancelled or marked delivery_failed, clear the rider's activeOrderId atomically
+      if ((status === 'cancelled' || status === 'delivery_failed') && order.driverId) {
+        await tx.driverProfile.updateMany({
+          where: { id: order.driverId, activeOrderId: id },
+          data: { activeOrderId: null },
+        });
+      }
     });
-    if (count === 0) {
-      throw new ConflictException('This order was updated by someone else. Please refresh.');
+
+    if (status === 'refunded') {
+      try {
+        await this.paymentsService.refundOrder(id, reason || 'Admin manual refund');
+      } catch (refundError) {
+        this.logger.error(`PaymentsService.refundOrder failed for order ${id}: ${refundError}`);
+      }
     }
 
     const updated = await this.getOrderRecord(id);
@@ -292,6 +319,35 @@ export class OrdersService {
     await this.eventBus.publish('order.status_changed', {
       orderId: id,
       status,
+      order: serialized,
+      userId: updated.userId,
+      dhabaId: updated.dhabaId,
+    });
+    return serialized;
+  }
+
+  async reviewOrder(user: AuthUser, id: string, action: 'dismiss' | 'resolve' = 'resolve', reason?: string) {
+    const roleStr = String(user.role);
+    if (!['admin', 'partner', 'kitchen_staff'].includes(roleStr)) {
+      throw new ForbiddenException('Only staff can review orders.');
+    }
+    const order = await this.getOrderRecord(id);
+
+    const data: Prisma.OrderUpdateInput = {
+      reviewedAt: new Date(),
+      ...(action === 'dismiss' ? { isFlagged: false } : {}),
+    };
+
+    await this.prisma.order.update({
+      where: { id },
+      data,
+    });
+
+    const updated = await this.getOrderRecord(id);
+    const serialized = this.serialize(updated);
+    await this.eventBus.publish('order.status_changed', {
+      orderId: id,
+      status: updated.status,
       order: serialized,
       userId: updated.userId,
       dhabaId: updated.dhabaId,
@@ -417,6 +473,10 @@ export class OrdersService {
       deliveredAt: order.deliveredAt?.toISOString() ?? null,
       cancelledAt: order.cancelledAt?.toISOString() ?? null,
       cancellationReason: order.cancellationReason,
+      isFlagged: order.isFlagged,
+      flaggedReason: order.flaggedReason,
+      flaggedAt: order.flaggedAt?.toISOString() ?? null,
+      reviewedAt: order.reviewedAt?.toISOString() ?? null,
       driver: order.driver
         ? {
             id: order.driver.id,

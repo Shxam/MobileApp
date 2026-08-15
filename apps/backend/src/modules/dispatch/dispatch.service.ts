@@ -255,6 +255,16 @@ export class DispatchService {
         data: { activeOrderId: null },
       });
 
+      // Credit fan points to customer: 1 point per ₹10 (1000 paise) spent.
+      const points = Math.floor(order.totalAmountPaise / 1000);
+      if (points > 0) {
+        await tx.fanPoints.upsert({
+          where: { userId: order.userId },
+          update: { balance: { increment: points } },
+          create: { userId: order.userId, balance: points },
+        });
+      }
+
       return tx.order.findUniqueOrThrow({ where: { id: orderId } });
     });
 
@@ -327,6 +337,28 @@ export class DispatchService {
       where: { id: profile.activeOrderId },
       include: { items: true, driverLocation: true },
     });
+  }
+
+  /** Flags a problem on an active delivery without changing order status. */
+  async reportIssue(userId: string, orderId: string, reason: string) {
+    const profile = await this.requireAssignment(userId, orderId);
+    const order = await this.prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+
+    await this.prisma.order.update({
+      where: { id: orderId },
+      data: { isFlagged: true, flaggedReason: reason, flaggedAt: new Date() },
+    });
+
+    await this.eventBus.publish('order.issue_reported', {
+      orderId,
+      orderNumber: order.orderNumber,
+      driverId: profile.id,
+      reason,
+      dhabaId: order.dhabaId,
+    });
+
+    this.logger.warn(`Driver ${profile.id} reported issue on order ${order.orderNumber}: ${reason}`);
+    return { orderId, isFlagged: true, flaggedReason: reason };
   }
 
   private async requireAssignment(userId: string, orderId: string) {

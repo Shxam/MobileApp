@@ -20,16 +20,17 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   ready_for_pickup: ['assigned', 'cancelled'],
   assigned: ['picked_up', 'ready_for_pickup', 'cancelled'],
   // `out_for_delivery` is a legacy alias of `picked_up`; both lead to delivered.
-  picked_up: ['delivered', 'out_for_delivery'],
-  out_for_delivery: ['delivered'],
+  picked_up: ['delivered', 'out_for_delivery', 'delivery_failed'],
+  out_for_delivery: ['delivered', 'delivery_failed'],
   delivered: ['refunded'],
   cancelled: ['refunded'],
   refunded: [],
   payment_failed: ['awaiting_payment', 'cancelled'],
+  delivery_failed: ['refunded'],
 };
 
 /** Statuses from which an order can no longer progress. */
-export const TERMINAL_STATUSES: readonly OrderStatus[] = ['delivered', 'refunded'];
+export const TERMINAL_STATUSES: readonly OrderStatus[] = ['delivered', 'refunded', 'delivery_failed'];
 
 /**
  * Which role may drive which transition.
@@ -52,6 +53,7 @@ const ROLE_TRANSITIONS: Record<string, readonly OrderStatus[]> = {
     'delivered',
     'cancelled',
     'refunded',
+    'delivery_failed',
   ],
   customer: ['cancelled'],
 };
@@ -92,6 +94,7 @@ export function timestampFieldFor(status: OrderStatus): string | null {
     case 'delivered':
       return 'deliveredAt';
     case 'cancelled':
+    case 'delivery_failed':
       return 'cancelledAt';
     default:
       return null;

@@ -19,11 +19,13 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { QuoteRequestDto } from '../pricing/dto/quote-request.dto';
+import { PaymentGatewayModule } from '../payment-gateway/payment-gateway.module';
 import {
   CancelOrderDto,
   CreateOrderDto,
   DriverLocationDto,
   ListOrdersQueryDto,
+  ReviewOrderDto,
   UpdateOrderStatusDto,
 } from './dto/order.dto';
 
@@ -75,6 +77,20 @@ export class OrdersController {
     return this.ordersService.updateStatus(req.user, id, body.status, body.reason);
   }
 
+  @Patch(':id/review')
+  @HttpCode(200)
+  @Roles('admin', 'partner', 'kitchen_staff')
+  reviewOrder(@Req() req: any, @Param('id') id: string, @Body() body: ReviewOrderDto) {
+    return this.ordersService.reviewOrder(req.user, id, body.action ?? 'resolve', body.reason);
+  }
+
+  @Patch(':id/dismiss-flag')
+  @HttpCode(200)
+  @Roles('admin', 'partner', 'kitchen_staff')
+  dismissFlag(@Req() req: any, @Param('id') id: string) {
+    return this.ordersService.reviewOrder(req.user, id, 'dismiss');
+  }
+
   /** A customer withdrawing their own order; staff use `PATCH :id/status`. */
   @Patch(':id/cancel')
   @HttpCode(200)
@@ -96,6 +112,7 @@ export class OrdersController {
  * Live tracking is socket.io only (Phase 7).
  */
 @Module({
+  imports: [PaymentGatewayModule],
   controllers: [OrdersController],
   providers: [OrdersService],
   exports: [OrdersService],

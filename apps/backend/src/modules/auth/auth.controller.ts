@@ -1,7 +1,9 @@
 import { Controller, Post, Patch, Body, Get, UseGuards, Req, HttpCode, HttpStatus, Inject } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { GoogleAuthService } from './google-auth.service';
 import { FirebaseAuthDto } from './dto/firebase-auth.dto';
+import { GoogleAuthDto, CompleteProfileDto } from './dto/google-auth.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { ChangeStaffPinDto, StaffLoginDto } from './dto/staff-login.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -19,7 +21,40 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
  */
 @Controller('auth')
 export class AuthController {
-  constructor(@Inject(AuthService) private readonly authService: AuthService) {}
+  constructor(
+    @Inject(AuthService) private readonly authService: AuthService,
+    @Inject(GoogleAuthService) private readonly googleAuthService: GoogleAuthService,
+  ) {}
+
+  /**
+   * POST /api/v1/auth/google
+   * Exchange a verified Google ID token for IPL Dhaba JWT access + refresh tokens.
+   *
+   * The token is verified server-side with `google-auth-library` — the client
+   * never sends its own claims, so a forged token cannot mint a session.
+   */
+  @Throttle({ default: { ttl: 60_000, limit: 20 } })
+  @Post('google')
+  @HttpCode(HttpStatus.OK)
+  async authenticateWithGoogle(@Body() dto: GoogleAuthDto) {
+    return this.googleAuthService.authenticateWithGoogle(dto.idToken);
+  }
+
+  /**
+   * PATCH /api/v1/auth/complete-profile
+   * Completes the onboarding step after a Google sign-in: phone + favorite team.
+   *
+   * The target is always `req.user.userId`, never an id from the body.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Patch('complete-profile')
+  @HttpCode(HttpStatus.OK)
+  async completeProfile(@Req() req: any, @Body() dto: CompleteProfileDto) {
+    return {
+      success: true,
+      user: await this.googleAuthService.completeProfile(req.user.userId, dto),
+    };
+  }
 
   /**
    * POST /api/v1/auth/firebase

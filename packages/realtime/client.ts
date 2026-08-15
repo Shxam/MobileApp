@@ -48,6 +48,12 @@ export interface RealtimeHandlers {
   onOrderOffered?: (payload: { orderId: string; order?: any; timestamp: string }) => void;
   /** Another driver claimed it — drop it from the offer list. */
   onOrderTaken?: (payload: { orderId: string; timestamp: string }) => void;
+  /** An order was assigned to a driver. */
+  onOrderAssigned?: (payload: { orderId: string; driverId?: string; timestamp?: string }) => void;
+  /** An order was released by a driver. */
+  onOrderReleased?: (payload?: { orderId?: string; timestamp?: string }) => void;
+  /** An order was delivered. */
+  onOrderDelivered?: (payload?: { orderId?: string; timestamp?: string }) => void;
   /** Customer only: the handover code. Never delivered to the order room. */
   onDeliveryOtp?: (payload: { orderId: string; orderNumber: string; deliveryOtp: string }) => void;
   onDriverLocation?: (payload: { orderId: string; location: any; timestamp: string }) => void;

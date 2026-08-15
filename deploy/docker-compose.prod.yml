@@ -1,0 +1,86 @@
+version: '3.8'
+
+# ===================================================
+# IPL Dhaba — Production Docker Compose for Oracle Cloud
+# Always Free VM (4 vCPU / 24 GB RAM / 200 GB SSD)
+#
+# Stack:
+#   - backend: NestJS API (port 3001, exposed via Cloudflare Tunnel)
+#   - postgres: PostgreSQL 16 (internal only)
+#   - redis: Redis 7 (internal only)
+#
+# No ports are published for postgres or redis — the only ingress is the
+# backend, which is reached through the Cloudflare Zero Trust tunnel.
+#
+# Before running: copy `.env.production` into this directory and fill in the
+# secrets. See `oracle-cloudflare-setup.md` for the full walkthrough.
+# ===================================================
+
+services:
+  backend:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      args:
+        NODE_ENV: production
+    image: ghcr.io/shxam/ipl-dhaba-backend:latest
+    container_name: ipldhaba_backend
+    restart: unless-stopped
+    ports:
+      # Only the backend is exposed to the host; the tunnel connects here.
+      - "127.0.0.1:3001:3001"
+    env_file:
+      - .env.production
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - HOST=0.0.0.0
+      - DATABASE_URL=postgresql://ipldhaba:${POSTGRES_PASSWORD}@postgres:5432/ipldhaba?sslmode=disable
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: ipldhaba_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ipldhaba
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ipldhaba
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ipldhaba -d ipldhaba"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No ports published — database is internal to the compose network.
+
+  redis:
+    image: redis:7-alpine
+    container_name: ipldhaba_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No ports published — Redis is internal to the compose network.
+
+volumes:
+  postgres_data:
+  redis_data:

@@ -42,14 +42,10 @@ export default async function globalSetup(): Promise<void> {
   // the wrong reason. Imported and called rather than shelled out to, so it runs
   // under ts-jest's compiler against the URL resolved above.
   process.env.SEED_STAFF_PIN ??= '135790';
-  const { PrismaClient } = await import('@prisma/client');
-  const { seedDatabase } = await import('../prisma/seed');
-  const seedClient = new PrismaClient({ datasources: { db: { url: testUrl } } });
-  try {
-    await seedDatabase(seedClient);
-  } finally {
-    await seedClient.$disconnect();
-  }
+  execSync('npx tsx prisma/seed.ts', {
+    stdio: 'inherit',
+    env: { ...process.env, DATABASE_URL: testUrl },
+  });
 
   // eslint-disable-next-line no-console
   console.log(`[test-db] Migrations applied and seeded into "${TEST_SCHEMA}".\n`);

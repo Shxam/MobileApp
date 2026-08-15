@@ -4,7 +4,7 @@ import { DispatchSweepService } from './dispatch-sweep.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
-import { ClaimOrderDto, CompleteDeliveryDto, ReleaseOrderDto, SetOnlineDto } from './dto/dispatch.dto';
+import { ClaimOrderDto, CompleteDeliveryDto, ReleaseOrderDto, ReportIssueDto, SetOnlineDto } from './dto/dispatch.dto';
 
 /**
  * Everything here is delivery-partner-only, enforced at the class level so a new
@@ -61,6 +61,12 @@ export class DispatchController {
   @HttpCode(200)
   releaseOrder(@Req() req: any, @Param('orderId') orderId: string, @Body() body: ReleaseOrderDto) {
     return this.dispatch.releaseOrder(req.user.userId, orderId, body.reason);
+  }
+
+  @Post(':orderId/issue')
+  @HttpCode(200)
+  reportIssue(@Req() req: any, @Param('orderId') orderId: string, @Body() body: ReportIssueDto) {
+    return this.dispatch.reportIssue(req.user.userId, orderId, body.reason);
   }
 }
 

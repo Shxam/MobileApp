@@ -68,6 +68,13 @@ interface AppContextType {
    * ended up able to award itself fan points.
    */
   updateUser: (changes: { name?: string; favoriteTeam?: string }) => Promise<void>;
+  /**
+   * Completes the onboarding step after a Google sign-in: phone + favorite team.
+   *
+   * A Google OAuth user is created with `phone` empty. Until they complete this
+   * step, full app access (ordering, turf, wallet) is gated behind the modal.
+   */
+  completeUserProfile: (changes: { phone: string; favoriteTeam?: string; name?: string }) => Promise<void>;
   isAuthenticating: boolean;
   language: Language;
   setLanguage: (lang: Language) => void;
@@ -293,6 +300,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const { user: profile } = await ApiClient.updateProfile(changes);
     setUser({ ...profile, isLoggedIn: true });
   }, []);
+
+  /**
+   * Completes the profile step after a Google sign-in.
+   *
+   * The response is written to state — the server normalises the phone to E.164
+   * and trims the name, so echoing the request back would show an edit that did
+   * not actually happen.
+   */
+  const completeUserProfile = useCallback(
+    async (changes: { phone: string; favoriteTeam?: string; name?: string }) => {
+      const { user: profile } = await ApiClient.completeUserProfile(changes);
+      setUser({ ...profile, isLoggedIn: true });
+    },
+    [],
+  );
 
   const refreshOrders = useCallback(async () => {
     if (!tokenStore.isAuthenticated) return;
@@ -614,6 +636,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       user,
       refreshUser,
       updateUser,
+      completeUserProfile,
       isAuthenticating,
       language,
       setLanguage,
@@ -656,7 +679,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       logout,
     }),
     [
-      user, refreshUser, updateUser, isAuthenticating, language, theme, toggleTheme, isPhoneFrame,
+      user, refreshUser, updateUser, completeUserProfile, isAuthenticating, language, theme, toggleTheme, isPhoneFrame,
       cart, addToCart, removeFromCart, updateCartQuantity, clearCart, cartTotalPaise,
       turfBookings, refreshTurfBookings, cancelTurfBooking,
       foodOrders, refreshOrders, applyOrderUpdate, cancelOrder, updateOrderStatus, submitReview, deliveryOtp,
