@@ -181,6 +181,10 @@ export const env = {
   defaultDhabaId: optional('DEFAULT_DHABA_ID', 'dhaba_singarayakonda')!,
 } as const;
 
+export const FEATURES = {
+  loyaltyAndVouchersEnabled: false,
+} as const;
+
 if (isProduction && !env.redisUrl && !env.redisHost) {
   problems.push('REDIS_URL or REDIS_HOST is required in production (in-memory fallback is not safe across replicas)');
 }

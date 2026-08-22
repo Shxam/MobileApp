@@ -352,19 +352,17 @@ export const TurfBookingView: React.FC<TurfBookingViewProps> = ({
             </div>
           )}
 
-          {/* Date */}
+          {/* Date Selector */}
           <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
             <div className="flex items-center justify-between text-xs">
+              <span className="font-extrabold text-slate-800 dark:text-slate-100">Select Date</span>
               <button
                 onClick={() => setShowCalendarModal(true)}
-                className="bg-emerald-500 hover:bg-emerald-600 text-white px-3 py-1.5 rounded-full flex items-center gap-1.5 text-xs font-extrabold active:scale-95 transition-all"
+                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/60 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800/80 flex items-center gap-1.5 transition-all active:scale-95 cursor-pointer"
               >
-                <CalendarIcon className="w-3.5 h-3.5" />
-                <span>Pick a date</span>
+                <CalendarIcon className="w-3.5 h-3.5 text-emerald-500" />
+                <span>Calendar</span>
               </button>
-              <span className="text-emerald-600 dark:text-emerald-400 font-extrabold bg-emerald-50 dark:bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-200 dark:border-emerald-800">
-                {selectedDate}
-              </span>
             </div>
 
             <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar">

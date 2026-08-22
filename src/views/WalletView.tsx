@@ -15,6 +15,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { FEATURES } from '../config/features';
 
 /**
  * The wallet.
@@ -151,15 +152,17 @@ export const WalletView: React.FC = () => {
           </div>
         </div>
 
-        <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-1.5 text-amber-400">
-            <Award className="w-4 h-4" />
-            <span className="font-bold">
-              {(wallet?.fanPoints ?? user.fanPoints).toLocaleString('en-IN')} fan points
-            </span>
+        {FEATURES.loyaltyAndVouchersEnabled && (
+          <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-1.5 text-amber-400">
+              <Award className="w-4 h-4" />
+              <span className="font-bold">
+                {(wallet?.fanPoints ?? user.fanPoints).toLocaleString('en-IN')} fan points
+              </span>
+            </div>
+            <span className="text-[10px] text-slate-400">Earned on completed orders</span>
           </div>
-          <span className="text-[10px] text-slate-400">Earned on completed orders</span>
-        </div>
+        )}
       </div>
 
       {loadError && (

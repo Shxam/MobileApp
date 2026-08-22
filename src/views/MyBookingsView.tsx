@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { formatPaise } from '../types';
 import type { OrderView, TurfBookingView, CelebrationBookingView } from '../services/apiClient';
-import { DriverMapTracker } from '../components/DriverMapTracker';
+import { LazyTrackingMap } from '../components/LazyTrackingMap';
 import { ReviewModal } from '../components/ReviewModal';
 import { GatePassQr } from '../components/GatePassQr';
 import {
@@ -233,7 +233,7 @@ export const MyBookingsView: React.FC = () => {
               </div>
 
               {/* Real socket-fed map; no interpolated fake route. */}
-              <DriverMapTracker
+              <LazyTrackingMap
                 orderId={activeOrder.id}
                 deliveryTarget={activeOrder.deliveryTarget}
                 estimatedMinutes={activeOrder.estimatedDeliveryMinutes}

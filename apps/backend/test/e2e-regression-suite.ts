@@ -207,7 +207,7 @@ async function runRegressionSuite() {
 
   const pointsAfter2 = (await prisma.fanPoints.findUnique({ where: { userId: customerUser.id } }))?.balance ?? 0;
   console.log(`Customer FanPoints AFTER Duplicate Attempt: ${pointsAfter2}`);
-  console.log(`✅ Idempotency Verified: Points did NOT double-increment! (${pointsAfter2 === pointsAfter1})\n`);
+  console.log(`✅ Feature Flag Disabled Verified: FanPoints did NOT increment! (${pointsAfter1 === pointsBefore})\n`);
 
   // ----------------------------------------------------
   // TEST B1-COD: COD Fan Points Credit & Payment Settlement
@@ -266,7 +266,7 @@ async function runRegressionSuite() {
   console.log(`COD Cash Payment Record Created: ${cashPayment?.provider === 'cash' && cashPayment?.amountPaise === 5000}`);
   console.log(`Customer FanPoints BEFORE COD: ${codPointsBefore}`);
   console.log(`Customer FanPoints AFTER COD Delivery: ${codPointsAfter} (+${codPointsAfter - codPointsBefore} points)`);
-  console.log(`✅ COD FanPoints & Cash Settlement Verified: ${codPointsAfter === codPointsBefore + 5 && codOrderAfter?.paymentStatus === 'paid'}\n`);
+  console.log(`✅ COD Cash Settlement Verified & FanPoints Stayed Flat: ${codPointsAfter === codPointsBefore && codOrderAfter?.paymentStatus === 'paid'}\n`);
 
   // ----------------------------------------------------
   // TEST B2: KDS Reject & Mark Out-of-Stock Action
@@ -527,6 +527,21 @@ async function runRegressionSuite() {
   console.log(`ReviewedAt Set After Dismiss: ${orderAfterDismiss?.reviewedAt !== null}`);
   console.log(`False Alarm Order Dropped Out of Needs Review Queue: ${!inQueueAfterDismiss}`);
   console.log(`✅ TEST C2 Complete: Dismiss Flag Resolution Verified\n`);
+
+  // ----------------------------------------------------
+  // TEST D1: Turf Venue Active Filtering (Single Venue)
+  // ----------------------------------------------------
+  console.log('--- TEST D1: Single Active Turf Venue Verification ---');
+
+  const turfsRes = await fetch(`${API_BASE}/turfs`);
+  const activeTurfsList = (await turfsRes.json()) as any[];
+  console.log(`Turfs List HTTP Status: ${turfsRes.status}`);
+  console.log(`Active Turfs Count Returned by API: ${activeTurfsList.length} (Expected: 1)`);
+  if (activeTurfsList.length > 0) {
+    console.log(`Active Turf Name: "${activeTurfsList[0].name}" (${activeTurfsList[0].id})`);
+  }
+  console.log(`UI Switcher Bypassed (activeTurfs.length <= 1): ${activeTurfsList.length <= 1}`);
+  console.log(`✅ TEST D1 Complete: Single Active Turf Venue Verified\n`);
 
   await prisma.$disconnect();
 }

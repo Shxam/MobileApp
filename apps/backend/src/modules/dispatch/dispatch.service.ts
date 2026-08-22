@@ -11,7 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { OrderStatus, PaymentMethod, PaymentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { EventBusService } from '../../common/event-bus/event-bus.service';
-import { env } from '../../common/config/env';
+import { env, FEATURES } from '../../common/config/env';
 
 /** Wrong-OTP attempts before the driver must call the dhaba. */
 const MAX_OTP_ATTEMPTS = 5;
@@ -255,14 +255,16 @@ export class DispatchService {
         data: { activeOrderId: null },
       });
 
-      // Credit fan points to customer: 1 point per ₹10 (1000 paise) spent.
-      const points = Math.floor(order.totalAmountPaise / 1000);
-      if (points > 0) {
-        await tx.fanPoints.upsert({
-          where: { userId: order.userId },
-          update: { balance: { increment: points } },
-          create: { userId: order.userId, balance: points },
-        });
+      // Credit fan points to customer: 1 point per ₹10 (1000 paise) spent (if feature enabled).
+      if (FEATURES.loyaltyAndVouchersEnabled) {
+        const points = Math.floor(order.totalAmountPaise / 1000);
+        if (points > 0) {
+          await tx.fanPoints.upsert({
+            where: { userId: order.userId },
+            update: { balance: { increment: points } },
+            create: { userId: order.userId, balance: points },
+          });
+        }
       }
 
       return tx.order.findUniqueOrThrow({ where: { id: orderId } });

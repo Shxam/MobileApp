@@ -20,10 +20,12 @@ import {
   Wallet,
   Loader2,
   Trash2,
+  Navigation,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { formatPaise, type AvailableVoucher, type SavedAddress } from '../types';
 import { ApiClient } from '../services/apiClient';
+import { FEATURES } from '../config/features';
 
 interface ProfileModalProps {
   isOpen: boolean;
@@ -78,6 +80,66 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
   const [newAddrDetail, setNewAddrDetail] = useState('');
   const [newAddrLandmark, setNewAddrLandmark] = useState('');
   const [newAddrPincode, setNewAddrPincode] = useState('');
+  const [isLocatingGps, setIsLocatingGps] = useState(false);
+
+  const handleUseGpsLocation = () => {
+    if (!navigator.geolocation) {
+      setAddressError('GPS location is not supported by your browser.');
+      return;
+    }
+
+    setIsLocatingGps(true);
+    setAddressError(null);
+
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const { latitude, longitude } = position.coords;
+        try {
+          // Reverse-geocode coordinates using OpenStreetMap Nominatim
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&zoom=18&addressdetails=1`,
+            { headers: { 'Accept-Language': 'en' } }
+          );
+          const data = await res.json();
+
+          if (data && data.address) {
+            const addr = data.address;
+            const street = addr.road || addr.suburb || addr.neighbourhood || addr.residential || '';
+            const area = addr.village || addr.town || addr.city || addr.county || '';
+            const state = addr.state || 'Andhra Pradesh';
+            const pincode = addr.postcode || '';
+            const parts = [street, area, state].filter(Boolean);
+            const fullAddress = parts.length > 0 ? parts.join(', ') : data.display_name?.split(', ').slice(0, 4).join(', ');
+
+            setNewAddrDetail(fullAddress || `GPS (${latitude.toFixed(4)}, ${longitude.toFixed(4)})`);
+            if (pincode) setNewAddrPincode(pincode.replace(/\D/g, '').slice(0, 6));
+            if (!newAddrLabel) setNewAddrLabel('Current Location (GPS)');
+            if (addr.landmark || addr.amenity || addr.building) {
+              setNewAddrLandmark(addr.landmark || addr.amenity || addr.building);
+            }
+            addNotification('📍 GPS Location Detected!', 'Address auto-filled from live map coordinates.', 'food');
+          } else {
+            setNewAddrDetail(`GPS Location: ${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+            if (!newAddrLabel) setNewAddrLabel('Current Location');
+          }
+        } catch {
+          setNewAddrDetail(`GPS Coordinates (${latitude.toFixed(4)}, ${longitude.toFixed(4)}), Singarayakonda`);
+          if (!newAddrLabel) setNewAddrLabel('Current Location');
+        } finally {
+          setIsLocatingGps(false);
+        }
+      },
+      (err) => {
+        setIsLocatingGps(false);
+        if (err.code === err.PERMISSION_DENIED) {
+          setAddressError('GPS permission denied. Please allow location access in your browser or enter address manually.');
+        } else {
+          setAddressError('Unable to fetch GPS position. Please enter address manually.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   /** Offers came from a hardcoded list whose codes no voucher row ever matched. */
   const [vouchers, setVouchers] = useState<AvailableVoucher[]>([]);
@@ -288,11 +350,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                 <div>
                   <h3 className="text-lg font-black text-slate-900 dark:text-white">{user.name}</h3>
                   <div className="flex items-center gap-1.5 justify-center mt-0.5">
-                    {/* Was a hardcoded "₹15k+ Spend" shown to every customer. Fan
-                        points are a number the server actually keeps. */}
-                    <span className="text-[11px] font-extrabold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
-                      {user.fanPoints.toLocaleString('en-IN')} Fan Points
-                    </span>
+                    {FEATURES.loyaltyAndVouchersEnabled && (
+                      <span className="text-[11px] font-extrabold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 px-2.5 py-0.5 rounded-full border border-emerald-200 dark:border-emerald-800">
+                        {user.fanPoints.toLocaleString('en-IN')} Fan Points
+                      </span>
+                    )}
                     <span className="text-xs font-semibold text-slate-400">@{user.phone.replace(/[^0-9]/g, '')}</span>
                   </div>
                   {user.favoriteTeam && (
@@ -406,18 +468,20 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
                     <ChevronRight className="w-4 h-4 text-slate-400" />
                   </button>
 
-                  <button
-                    onClick={() => setSubView('vouchers')}
-                    className="w-full p-3.5 flex items-center justify-between hover:bg-slate-100/80 dark:hover:bg-slate-700/80 transition-colors text-left"
-                  >
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 flex items-center justify-center shrink-0">
-                        <Tag className="w-4 h-4" />
+                  {FEATURES.loyaltyAndVouchersEnabled && (
+                    <button
+                      onClick={() => setSubView('vouchers')}
+                      className="w-full p-3.5 flex items-center justify-between hover:bg-slate-100/80 dark:hover:bg-slate-700/80 transition-colors text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-100 dark:bg-emerald-950/80 text-emerald-600 flex items-center justify-center shrink-0">
+                          <Tag className="w-4 h-4" />
+                        </div>
+                        <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Offers & Vouchers</span>
                       </div>
-                      <span className="text-xs font-bold text-slate-800 dark:text-slate-200">Offers & Vouchers</span>
-                    </div>
-                    <ChevronRight className="w-4 h-4 text-slate-400" />
-                  </button>
+                      <ChevronRight className="w-4 h-4 text-slate-400" />
+                    </button>
+                  )}
 
                   <button
                     onClick={() => {
@@ -469,6 +533,26 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({
 
               {showAddAddr && (
                 <form onSubmit={handleAddAddress} className="bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl p-3.5 space-y-3">
+                  {/* GPS Auto-fill Button */}
+                  <button
+                    type="button"
+                    onClick={handleUseGpsLocation}
+                    disabled={isLocatingGps}
+                    className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-extrabold px-3 py-2.5 rounded-xl text-xs flex items-center justify-center gap-2 transition-all active:scale-98 disabled:opacity-50"
+                  >
+                    {isLocatingGps ? (
+                      <>
+                        <Loader2 className="w-4 h-4 text-emerald-500 animate-spin" />
+                        <span>Detecting GPS Location from Map…</span>
+                      </>
+                    ) : (
+                      <>
+                        <Navigation className="w-4 h-4 text-emerald-500 fill-emerald-500" />
+                        <span>Use Current Location (GPS Auto-Fill)</span>
+                      </>
+                    )}
+                  </button>
+
                   <input
                     type="text"
                     placeholder="Address Label (e.g. Office Bench, Hostel 2)"

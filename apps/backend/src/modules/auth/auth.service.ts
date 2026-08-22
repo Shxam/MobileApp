@@ -274,15 +274,42 @@ export class AuthService {
    * Lets a signed-in staff member replace their own PIN. This is what makes
    * `mustChangePin` meaningful — a seeded or admin-issued PIN is a bootstrap
    * credential, not a permanent one.
+   *
+   * The lockout below is not belt-and-braces: this endpoint verifies the same
+   * secret as `staffLogin`, so without it a holder of a stolen access token had
+   * an unmetered oracle for the PIN. Worse, it ignored an active lockout, so an
+   * account `staffLogin` had already locked could still be tested here — and a
+   * correct guess cleared the lock on its way out.
    */
   async changeStaffPin(userId: string, currentPin: string, newPin: string) {
     const credential = await this.prisma.staffCredential.findUnique({ where: { userId } });
     if (!credential) {
       throw new UnauthorizedException('No staff credential exists for this account.');
     }
+
+    if (credential.lockedUntil && credential.lockedUntil > new Date()) {
+      const minutes = Math.ceil((credential.lockedUntil.getTime() - Date.now()) / 60_000);
+      throw new UnauthorizedException(
+        `Account locked after ${MAX_PIN_ATTEMPTS} failed attempts. Try again in ${minutes} minute(s) or contact an admin.`,
+      );
+    }
+
     if (!(await bcrypt.compare(currentPin, credential.pinHash))) {
+      const failedAttempts = credential.failedAttempts + 1;
+      const locked = failedAttempts >= MAX_PIN_ATTEMPTS;
+      await this.prisma.staffCredential.update({
+        where: { id: credential.id },
+        data: {
+          failedAttempts,
+          lockedUntil: locked ? new Date(Date.now() + PIN_LOCKOUT_MINUTES * 60_000) : null,
+        },
+      });
+      this.logger.warn(
+        `Failed PIN change for ${credential.employeeId} (${failedAttempts}/${MAX_PIN_ATTEMPTS}).`,
+      );
       throw new UnauthorizedException('Current PIN is incorrect.');
     }
+
     if (await bcrypt.compare(newPin, credential.pinHash)) {
       throw new BadRequestException('The new PIN must be different from the current one.');
     }

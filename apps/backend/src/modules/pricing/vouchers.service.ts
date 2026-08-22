@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../common/prisma/prisma.service';
+import { FEATURES } from '../../common/config/env';
 
 export interface VoucherEvaluation {
   valid: boolean;
@@ -42,6 +43,9 @@ export class VouchersService {
       remainingForUser: number;
     }>
   > {
+    if (!FEATURES.loyaltyAndVouchersEnabled) {
+      return [];
+    }
     const now = new Date();
     const [rows, mine] = await Promise.all([
       this.prisma.voucher.findMany({
@@ -103,6 +107,10 @@ export class VouchersService {
       discountPaise: 0,
       message,
     });
+
+    if (!FEATURES.loyaltyAndVouchersEnabled) {
+      return invalid('Loyalty points and vouchers are currently disabled.');
+    }
 
     if (!code) return invalid('Enter a voucher code.');
 

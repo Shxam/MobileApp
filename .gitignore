@@ -20,3 +20,7 @@ graphify-out/
 scratch/
 .claude/
 .codex/
+
+# Strix pentest artifacts. run.json embeds the full agent transcript, including
+# source excerpts and the findings, so it stays local rather than in the repo.
+strix_runs/

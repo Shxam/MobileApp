@@ -1,0 +1,91 @@
+name: 🔐 Strix Security Scan
+
+on:
+  pull_request:
+    branches: [ main ]
+  schedule:
+    # Weekly deeper sweep of the whole codebase, not just a PR diff.
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  strix-scan:
+    name: 🕵️ Autonomous Pentest (Strix)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: 📥 Checkout Repository
+        # Full history: diff-scope resolution needs the PR base branch present.
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🧰 Install Strix
+        run: curl -sSL https://strix.ai/install | bash
+
+      # On a PR only the changed files are tested, which keeps the gate fast.
+      # The scheduled/manual run scans everything in `standard` mode instead.
+      - name: 🔎 Run Security Scan
+        env:
+          STRIX_LLM: ${{ secrets.STRIX_LLM }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+        run: |
+          if [ -z "$STRIX_LLM" ] || [ -z "$LLM_API_KEY" ]; then
+            echo "::error::STRIX_LLM and LLM_API_KEY repository secrets are not set — refusing to report a clean scan that never ran."
+            exit 1
+          fi
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Resolve the PR's real base branch rather than assuming main.
+            DIFF_BASE="origin/${{ github.base_ref }}"
+            if ! git rev-parse --verify --quiet "$DIFF_BASE" >/dev/null; then
+              echo "::error::Cannot resolve diff base '$DIFF_BASE'. Ensure fetch-depth: 0 so the base branch is fetched."
+              exit 1
+            fi
+            strix -n -t ./ --scan-mode quick --scope-mode diff \
+              --diff-base "$DIFF_BASE" --max-budget 10
+          else
+            strix -n -t ./ --scan-mode standard --scope-mode full --max-budget 25
+          fi
+
+      # A run cut off at the hard budget limit exits 0 but records status
+      # "stopped". Without this step a truncated scan would pass the gate.
+      # It is not a full guard: an agent that wraps up on a budget *warning*
+      # still records "completed" with partial coverage, so keep the budgets
+      # above generous and raise them if cost lands near the cap.
+      - name: 🚧 Fail Unless The Scan Completed
+        if: always()
+        run: |
+          run_json=$(ls -t strix_runs/*/run.json 2>/dev/null | head -1)
+          if [ -z "$run_json" ]; then
+            echo "::error::No strix_runs/*/run.json found — the scan did not produce a run record."
+            exit 1
+          fi
+          status=$(jq -r .status "$run_json")
+          cost=$(jq -r '.llm_usage.cost // 0' "$run_json")
+          echo "Strix run status=$status cost=\$$cost"
+          if [ "$status" != "completed" ]; then
+            echo "::error::Strix run status is '$status' — the scan did not complete (likely budget exhausted). Raise --max-budget."
+            exit 1
+          fi
+
+      - name: 📤 Upload SARIF to Code Scanning
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: strix_runs
+
+      - name: 📎 Archive Scan Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: strix-findings
+          path: |
+            strix_runs/*/penetration_test_report.md
+            strix_runs/*/vulnerabilities/
+            strix_runs/*/vulnerabilities.json
+            strix_runs/*/findings.sarif
+          if-no-files-found: ignore

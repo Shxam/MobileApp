@@ -89,6 +89,10 @@ export class AuthController {
   }
 
   /** A staff member rotating their own PIN; required after a seeded first login. */
+  // The per-account lockout in `AuthService.changeStaffPin` is the real defence;
+  // this only stops one host grinding the endpoint. It inherited the global
+  // 120/min default before, which was far looser than `staff-login` next to it.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
   @UseGuards(JwtAuthGuard)
   @Post('staff/change-pin')
   @HttpCode(HttpStatus.OK)

@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 import {
   Bike,
   CheckCircle2,
@@ -25,12 +27,6 @@ import {
 } from 'lucide-react';
 import { useRealtime } from '../../../packages/realtime/useRealtime';
 import './styles.css';
-
-declare global {
-  interface Window {
-    L?: any;
-  }
-}
 
 type Offer = {
   id: string;
@@ -86,10 +82,11 @@ function DeliveryMap({ position, destinationLabel }: { position: Position | null
   const destinationMarker = useRef<any>(null);
 
   useEffect(() => {
-    if (!mapElement.current || !window.L || map.current) return;
-    map.current = window.L.map(mapElement.current).setView([destination.latitude, destination.longitude], 14);
-    window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors',
+    if (!mapElement.current || map.current) return;
+    map.current = L.map(mapElement.current).setView([destination.latitude, destination.longitude], 14);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/">CARTO</a>',
+      maxZoom: 19,
     }).addTo(map.current);
 
     return () => {
@@ -101,22 +98,28 @@ function DeliveryMap({ position, destinationLabel }: { position: Position | null
   }, []);
 
   useEffect(() => {
-    if (!map.current || !window.L) return;
+    if (!map.current) return;
     if (!destinationMarker.current) {
-      destinationMarker.current = window.L.marker([destination.latitude, destination.longitude]).addTo(map.current);
+      destinationMarker.current = L.marker([destination.latitude, destination.longitude]).addTo(map.current);
     }
     destinationMarker.current.bindPopup(destinationLabel || 'Delivery Target');
   }, [destinationLabel]);
 
   useEffect(() => {
-    if (!map.current || !position || !window.L) return;
-    const coordinates = [position.latitude, position.longitude];
+    if (!map.current || !position) return;
+    const coordinates: [number, number] = [position.latitude, position.longitude];
     if (!riderMarker.current) {
-      riderMarker.current = window.L.marker(coordinates).addTo(map.current).bindPopup('Rider Live Location');
+      riderMarker.current = L.marker(coordinates).addTo(map.current).bindPopup('Rider Live Location');
+      // Initial fit when rider first appears
+      map.current.fitBounds([coordinates, [destination.latitude, destination.longitude]], { padding: [35, 35] });
     } else {
       riderMarker.current.setLatLng(coordinates);
+      // Only re-fit when rider moves outside the padded visible area
+      const paddedBounds = map.current.getBounds().pad(-0.15);
+      if (!paddedBounds.contains(coordinates)) {
+        map.current.fitBounds([coordinates, [destination.latitude, destination.longitude]], { padding: [35, 35], animate: true, duration: 0.5 });
+      }
     }
-    map.current.fitBounds([coordinates, [destination.latitude, destination.longitude]], { padding: [35, 35] });
   }, [position]);
 
   return <div ref={mapElement} className="w-full h-64 sm:h-80 rounded-2xl overflow-hidden shadow-2xl border border-slate-800" aria-label="Live delivery map" />;

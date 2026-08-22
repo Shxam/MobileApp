@@ -15,7 +15,7 @@ import { FOOD_GST_RATE } from '../pricing/pricing.constants';
 import { VouchersService } from '../pricing/vouchers.service';
 import { WalletService } from '../wallet/wallet.service';
 import { PaymentsService } from '../payment-gateway/payments.service';
-import { env } from '../../common/config/env';
+import { env, FEATURES } from '../../common/config/env';
 import { assertTransition, isTerminal, timestampFieldFor } from './order-state-machine';
 import type { CreateOrderDto, ListOrdersQueryDto } from './dto/order.dto';
 
@@ -169,7 +169,7 @@ export class OrdersService {
         });
       }
 
-      if (redeemed.voucherId) {
+      if (FEATURES.loyaltyAndVouchersEnabled && redeemed.voucherId) {
         const claimed = await this.vouchers.recordRedemption(
           tx,
           redeemed.voucherId,

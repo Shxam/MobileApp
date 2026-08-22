@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { AnimatePresence, LayoutGroup, motion, useReducedMotion } from 'framer-motion';
 import { AnimatedValue } from '../components/AnimatedValue';
+import { FEATURES } from '../config/features';
 
 interface FoodDhabaViewProps {
   onNavigateHub: () => void;
@@ -1028,39 +1029,41 @@ export const FoodDhabaView: React.FC<FoodDhabaViewProps> = ({ onNavigateHub }) =
                 {cart.length > 0 && (
                   <>
                     {/* Voucher */}
-                    <div className="space-y-1.5 pt-2">
-                      <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
-                        <Ticket className="w-3.5 h-3.5 text-emerald-500" />
-                        Voucher code
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={promoInput}
-                          onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
-                          placeholder="Enter a code"
-                          disabled={promoBusy || appliedPromo !== null}
-                          className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold uppercase text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 disabled:opacity-60"
-                        />
-                        {appliedPromo ? (
-                          <button
-                            onClick={clearPromo}
-                            className="px-4 py-2 rounded-xl text-xs font-extrabold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
-                          >
-                            Remove
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => void applyPromo(promoInput)}
-                            disabled={promoBusy || !promoInput.trim()}
-                            className="px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-500 text-white shadow-green-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
-                          >
-                            {promoBusy && <Loader2 className="w-3 h-3 animate-spin" />}
-                            Apply
-                          </button>
-                        )}
+                    {FEATURES.loyaltyAndVouchersEnabled && (
+                      <div className="space-y-1.5 pt-2">
+                        <label className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                          <Ticket className="w-3.5 h-3.5 text-emerald-500" />
+                          Voucher code
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={promoInput}
+                            onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                            placeholder="Enter a code"
+                            disabled={promoBusy || appliedPromo !== null}
+                            className="flex-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold uppercase text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-emerald-500 disabled:opacity-60"
+                          />
+                          {appliedPromo ? (
+                            <button
+                              onClick={clearPromo}
+                              className="px-4 py-2 rounded-xl text-xs font-extrabold bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
+                            >
+                              Remove
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => void applyPromo(promoInput)}
+                              disabled={promoBusy || !promoInput.trim()}
+                              className="px-4 py-2 rounded-xl text-xs font-extrabold bg-emerald-500 text-white shadow-green-sm disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1"
+                            >
+                              {promoBusy && <Loader2 className="w-3 h-3 animate-spin" />}
+                              Apply
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     <div className="space-y-1.5 pt-1">
                       <label className="text-xs font-bold text-slate-800 dark:text-slate-200">Cooking instructions</label>

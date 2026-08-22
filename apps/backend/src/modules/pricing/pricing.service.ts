@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { randomUUID, createHmac, timingSafeEqual } from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { RedisService } from '../../common/redis/redis.service';
-import { env } from '../../common/config/env';
+import { env, FEATURES } from '../../common/config/env';
 import { VouchersService, type VoucherEvaluation } from './vouchers.service';
 import {
   BENCH_DELIVERY_FEE_PAISE,
@@ -123,7 +123,7 @@ export class PricingService {
     const gstAmountPaise = applyGst(subtotalPaise, FOOD_GST_RATE);
     const deliveryFeePaise = this.deliveryFeeFor(deliveryType, subtotalPaise);
 
-    const voucher = promoCode
+    const voucher = FEATURES.loyaltyAndVouchersEnabled && promoCode
       ? await this.vouchers.evaluate(promoCode, userId, subtotalPaise)
       : null;
 

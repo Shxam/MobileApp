@@ -97,22 +97,39 @@ export async function seedDatabase(prisma: PrismaClient): Promise<void> {
   }
 
   // 4. Turf & Slots
-  const turf = await prisma.turf.upsert({
+  // Deactivate any legacy duplicate turf record to preserve historical bookings without rendering duplicate tabs
+  await prisma.turf.updateMany({
     where: { id: 'turf_singarayakonda' },
-    update: { dhabaId },
+    data: { isActive: false },
+  });
+
+  const turf = await prisma.turf.upsert({
+    where: { id: '8c2a3975-821a-4221-8a5f-f455ded6c55a' },
+    update: { dhabaId, isActive: true },
     create: {
-      id: 'turf_singarayakonda',
-      name: 'IPL Dhaba Box Turf - Singarayakonda',
+      id: '8c2a3975-821a-4221-8a5f-f455ded6c55a',
+      name: 'IPL Dhaba Box Turf — Singarayakonda',
       location: 'NH-16, Singarayakonda, Prakasam Dist',
       area: 'Singarayakonda',
-      address: 'NH-16, Singarayakonda, Prakasam Dist',
+      address: 'NH-16 Bypass Road, Next to IPL Dhaba Kitchen, Singarayakonda, Andhra Pradesh',
+      latitude: 15.25,
+      longitude: 80.03,
       pricePerHourPaise: 120000,
-      pitchType: 'AstroTurf Box',
+      pitchType: 'Floodlit Pro Cage',
       rating: 4.9,
       reviewsCount: 512,
       isActive: true,
       dhabaId,
-      amenities: ['Floodlights', 'Dressing Room', 'Cricket Gear', 'Live Dugout Snacks'],
+      amenities: [
+        'Floodlights 500 Lux',
+        'Dhaba Dining Deck',
+        'Live Scoring Screen',
+        'Dressing Room AC',
+        'Free Parking',
+        'Equipment Rental',
+      ],
+      description:
+        'Singarayakonda’s floodlit box-cricket turf, attached to the dhaba kitchen — order biryani and starters straight to your team bench between innings.',
     },
   });
 
